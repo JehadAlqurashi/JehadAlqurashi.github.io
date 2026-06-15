@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Privilege Escalation - Port Forwarding Linux | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">linux-privesc</a><span class="sep">/</span><span>Privilege Escalation - Port Forwarding Linux</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">linux-privesc</span>
+<span class="post-date">2023-04-20</span>
+</div>
+<h1 class="post-title">Privilege Escalation - Port Forwarding Linux</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will explain privilege escalation through Local Port Forwarding. The idea behind this technique is that there is a local server running a web application with root privileges. Our goal is to find a vulnerability in this web application or CMS that allows us to execute commands with elevated (root) privileges.</p>
+<h2>Enumeration</h2>
+<p>As usual, we start logged in as a low-privileged user called <code>test</code>.</p>
+<h3>Discovering Local Ports</h3>
+<p>The first step is to check whether there are any ports running locally on the machine using the following command:</p>
+<pre><code class="language-bash">netstat -atp
+</code></pre>
+<p>In the output, we can see two ports running locally: port <code>33060</code> which belongs to MySQL, and port <code>9999</code> whose content is unknown -- it could potentially be a website.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/1.jpeg" alt="Step 1" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/10.png" alt="Step 2" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/11.png" alt="Step 3" loading="lazy"></figure>
+<h3>Confirming the Web Service</h3>
+<p>To verify whether there is a web application running on port 9999, we send a request using curl:</p>
+<pre><code class="language-bash">curl http://127.0.0.1:9999
+</code></pre>
+<p>The response confirms that there is indeed a website running on this port, just as we suspected.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/12.png" alt="Step 4" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/13.png" alt="Step 5" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/14.png" alt="Step 6" loading="lazy"></figure>
+<h3>Checking if the Service Runs as Root</h3>
+<p>Next, we need to determine whether this local server is running with root privileges. To find out, we examine the running processes on the system:</p>
+<pre><code class="language-bash">ps -aux
+</code></pre>
+<p>The output confirms that the server is indeed running with root privileges. This is the privilege level we want to reach.</p>
+<h2>Port Forwarding Setup</h2>
+<p>The question now is: how do we interact with this web application since we are working through a command line? This is exactly what this article is about -- we will use a port forwarding technique so that we can browse the website through our local browser.</p>
+<p>The SSH port forwarding command follows this format:</p>
+<pre><code class="language-bash">ssh -L [YOUR PORT]:[LocalMachine]:[PORT Machine] user@IP
+</code></pre>
+<p>Where:
+- <code>[YOUR PORT]</code> -- the local port on your machine where you want the website to be accessible. We will use port 80.
+- <code>[LocalMachine]</code> -- the local IP address, which is <code>127.0.0.1</code>.
+- <code>[PORT Machine]</code> -- the port on the target machine where the website is running (9999).
+- <code>user</code> -- the user we are logged in as (<code>test</code>).
+- <code>IP</code> -- the IP address of the target machine.</p>
+<p>After substituting the values, the command becomes:</p>
+<pre><code class="language-bash">ssh -L 80:127.0.0.1:9999 [email protected]
+</code></pre>
+<p>After executing this command, we open a browser and navigate to <code>localhost</code> to verify the website loads successfully.</p>
+<p>The website opens, confirming that the port forwarding is working correctly.</p>
+<h2>Exploiting the Web Application</h2>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/15.png" alt="Step 7" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/16.png" alt="Step 8" loading="lazy"></figure>
+<h3>Identifying the CMS</h3>
+<p>Our task now is to find an RCE (Remote Code Execution) vulnerability in the website. We search for the CMS name on Google because someone may have already found a vulnerability and written an exploit for it.</p>
+<p>The CMS is called <strong>Harshit Bansal PHP CMS</strong>.</p>
+<p>After searching, we find that there is an existing exploit -- in fact, it is an exploit that we previously discovered and wrote ourselves.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/17.png" alt="Step 9" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/2.png" alt="Step 10" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/3.png" alt="Step 11" loading="lazy"></figure>
+<h3>Obtaining Admin Credentials</h3>
+<p>Before downloading and running the exploit, we need to log into the admin panel because the exploit works through the admin dashboard.</p>
+<p>Clicking on the login page, it asks for a username and password. How do we obtain these credentials?</p>
+<p>Most CMS platforms set default admin credentials during installation, and many organizations never change them. We can search for the default credentials in the CMS documentation.</p>
+<p>After researching, we find that the CMS installation guide on GitHub provides the default admin credentials:</p>
+<p><a href="https://github.com/harshitbansal373/PHP-CMS">https://github.com/harshitbansal373/PHP-CMS</a></p>
+<ul>
+<li>Username: <code>harshitbansal</code></li>
+<li>Password: <code>12345</code></li>
+</ul>
+<p>We try these credentials and they work -- we are now logged into the admin panel.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/4.png" alt="Step 12" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/5.png" alt="Step 13" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/6.png" alt="Step 14" loading="lazy"></figure>
+<h3>Running the Exploit</h3>
+<p>Now it is time to download and run the exploit:</p>
+<p>Exploit link: <a href="https://github.com/RedVirus0/Exploit-RCE-PHP-CMS">https://github.com/RedVirus0/Exploit-RCE-PHP-CMS</a></p>
+<p>First, let us check the exploit options:</p>
+<pre><code class="language-bash">python3 Exploit.py -h
+</code></pre>
+<p>The exploit requires the target website URL and a shell file. We prepare a simple web shell (cmd.php) for command execution.</p>
+<p>The command to run the exploit is:</p>
+<pre><code class="language-bash">python3 Exploit.py --t &quot;http://localhost/&quot; --f cmd.php
+</code></pre>
+<p>The exploit uploads the file and provides us with the path to our uploaded shell. We can verify that the upload was successful and check our privileges through the shell.</p>
+<h2>Result</h2>
+<p>With this, we have obtained the highest privilege level on the system. The web application was running as root, so our shell also executes commands with root privileges. You could also use netcat to establish a reverse shell connection for a more interactive session.</p>
+<p>The key takeaway from this technique is: when you discover a local service running with elevated privileges, use port forwarding to access it from your browser, find a vulnerability in the application, and exploit it to gain command execution with those same elevated privileges.</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/7.png" alt="Step 15" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/8.png" alt="Step 16" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/9.png" alt="Step 17" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>مقدمة:</p>
+<p>في هذي المقالة راح نشرح رفع الصلاحيات عن طريق Local Port Forwarding الفكرة في هذا التكنيك ان في سيرفر محلي شغال عليه موقع بصلاحية root ف الهدف انه نلقى ثغرة لهذا الموقع او cms بحيث توصلنا الى انه ننفذ اوامر بصلاحية عالية (root)</p>
+<p>الشرح:</p>
+<p>كالعادة انا داخل بيوزر محدود الصلاحية اللي هو test</p>
+<p>اول شي راح نعرف هل في بورت شغال لوكل على المشين او لا عن طريق الأمر هذا</p>
+<p>netstat -atp</p>
+<p>نلاحظ عندنا بورتين شغالة لوكل اللي هو 33060 خاص ب mysql والبورت الثاني 9999 ومانعرف ايش محتواه ف ممكن يكون موقع</p>
+<p>كيف راح نتأكد راح نرسل ريكوست عن طريق اداة curl</p>
+<p>نلاحظ يوجد موقع على هذا البورت زي ماتوقعنا طيب كيف راح نعرف هل السيرفر المحلي هذا شغال بصلاحية روت او لا عشان نعرف راح نطلع على البروسيس الشغالة على النظام عن طريق أمر</p>
+<p>ps -aux</p>
+<p>نلاحظ انه فعلا شغال السيرفر بصلاحية root وهذي الصلاحية اللي ودنا نوصلها طيب كيف راح نفحص الموقع هذا دام نحن قاعدين نتعامل بالأوامر</p>
+<p>هذا هو موضوع مقالتنا لليوم راح نتسخدم تكنيك بحيث نقدر نتصفح الموقع عن طريق المتصفح حقنا</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/1.jpeg" alt="Step 1" loading="lazy"></figure>
+
+<p>خل اول شي اشرح لكم الأمر بعدين ننفذه</p>
+<p>ssh -L [YOUR PORT]:[LocalMachine]:[PORT Machine] [email protected]</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/10.png" alt="Step 2" loading="lazy"></figure>
+
+<p>[YOUR PORT] = راح نخل مكان هذي القيمة البورت المحلي حقك اللي ودك ينتفح عليه الموقع انا راح اخليه 80</p>
+<p>[LocalMachine] = هنا راح نحط الايبي المحلي حقنا اللي هو 127.0.0.1</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/11.png" alt="Step 3" loading="lazy"></figure>
+
+<p>[PORT Machine] = هنا راح نحط البورت اللي شغال عليه الموقع في المشين</p>
+<p>user = راح نحط اليوزر اللي داخلين فيه اللي هو test</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/12.png" alt="Step 4" loading="lazy"></figure>
+
+<p>192.168.135.129 = الايبي تبع المشين</p>
+<p>ف راح يكون الأمر حقي بعد التعديل كذا</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/13.png" alt="Step 5" loading="lazy"></figure>
+
+<p>ssh -L 80:127.0.0.1:9999 [email protected]</p>
+<p>بعد تنفيذ الأمر راح نفتح المتصفح ونكتب localhost ونشوف هل يفتح لنا الموقع او لا</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/14.png" alt="Step 6" loading="lazy"></figure>
+
+<p>نلاحظ فتح لنا الموقع اللحين مهمتنا نلقى ثغرة RCE ف الموقع ف راح نبحث عن اسم ال cms هذا بقوقل لان ممكن يكون قد احد لقي فيه ثغرة وكتب لها اكسبلويت</p>
+<p>اسم ال cms هو Harshit Bansal</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/15.png" alt="Step 7" loading="lazy"></figure>
+
+<p>نلاحظ انه طلع لي استغلال للقيت اب حقي لان قد فحصت ال cms هذا وكتبت له استغلال</p>
+<p>طيب قبل ننزل الاستغلال يتطلب منا انه ندخل على اللوحة حقت الأدمن عشان الاستغلال راح يكون عن طريق اللوحة</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/16.png" alt="Step 8" loading="lazy"></figure>
+
+<p>لو نضغط على login راح يتطلب منا يوزر وباسورد</p>
+<p>زي ما انتوا شايفين طالب مني يوزر وباسورد طيب كيف راح نحصل عليهم</p>
+<p>اغلب ال cms تحط يوزر وباسورد default للأدمن عند تنصيب ال cms واغلب الشركات ماتغيره ف اللي راح نسويه راح نقرأ عنه ممكن نلاقي فعلا يوزر وباسورد خاص بالأدمن</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/17.png" alt="Step 9" loading="lazy"></figure>
+
+<p>بعد مابحثت لقيت ان من هنا تقدر تنزل ال cms ويعلمك كيف تنصبه ولاحظت انه حاط يوزر وباسورد default للأدمن</p>
+<p>https://github.com/harshitbansal373/PHP-CMS</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/2.png" alt="Step 10" loading="lazy"></figure>
+
+<p>اليوزر هو : harshitbansal</p>
+<p>الباس هو : 12345</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/3.png" alt="Step 11" loading="lazy"></figure>
+
+<p>اللحين راح نجرب ونشوف هل يدخلنا ولا</p>
+<p>فعلا دخلنا على لوحة الأدمن اللحين وقت تنزيل الأستغلال</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/4.png" alt="Step 12" loading="lazy"></figure>
+
+<p>رابط الأستغلال: https://github.com/RedVirus0/Exploit-RCE-PHP-CMS</p>
+<p>طيب راح نطلع على الاوبشنات حق الأستغلال</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/5.png" alt="Step 13" loading="lazy"></figure>
+
+<p>راح نكتب</p>
+<p>python3 Exploit.py -h</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/6.png" alt="Step 14" loading="lazy"></figure>
+
+<p>طيب نلاحظ يطلب مننا الرابط حق الموقع</p>
+<p>ويطلب مننا الشيل ف انا سويت شيل بسيط هذا محتواه</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/7.png" alt="Step 15" loading="lazy"></figure>
+
+<p>طيب راح يكون الأمر كالتالي:</p>
+<p>python3 Exploit.py --t "http://localhost/" --f cmd.php</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/8.png" alt="Step 16" loading="lazy"></figure>
+
+<p>نلاحظ انه انرفع الملف وعطانا المسار راح نتأكد هل انرفع او لا ونشوف صلاحياتنا مره وحده</p>
+<p>وبكذا حصلنا على اعلى صلاحية ممكن انك تستخدم netcat وتجيب اتصال عكسي اتمنى المقالة نالت على اعجابكم</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-local-port-forwarding/9.png" alt="Step 17" loading="lazy"></figure>
+
+<p>شاكر لكم</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

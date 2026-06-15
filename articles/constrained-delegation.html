@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Domain Privilege Escalation - Constrained Delegation Attack | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">active-directory</a><span class="sep">/</span><span>Domain Privilege Escalation - Constrained Delegation Attack</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">active-directory</span>
+<span class="post-date">2023-10-28</span>
+</div>
+<h1 class="post-title">Domain Privilege Escalation - Constrained Delegation Attack</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will explain the fourth Domain Privilege Escalation technique: Constrained Delegation.</p>
+<p>Before we begin, let us understand what Constrained Delegation is.</p>
+<h2>What is Constrained Delegation?</h2>
+<p>Constrained Delegation is a feature that enables an Administrator to delegate a specific user or computer to execute a particular service (such as MSSQL or CIFS) that resides on another machine. Unlike Unconstrained Delegation, the delegation is limited to specific services only.</p>
+<h2>Step-by-Step Walkthrough</h2>
+<h3>Step 1: Load the PowerView Module</h3>
+<p>To start, we load the PowerView development version into our PowerShell session:</p>
+<pre><code class="language-powershell">Import-Module .\PowerView_dev.ps1
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/constrained-delegation/2.jpeg" alt="Step 1" loading="lazy"></figure>
+<h3>Step 2: Identify Users with Constrained Delegation</h3>
+<p>Now we run a command to check whether there are any users that have been delegated to execute a service on another machine:</p>
+<pre><code class="language-powershell">Get-NetUser -TrustedToAuth
+</code></pre>
+<p>We can see that the user <code>websvc</code> is able to execute the CIFS service on the machine <code>dcorp-mssql</code>.</p>
+<p><strong>What is the CIFS service?</strong> CIFS (Common Internet File System) is a service that allows you to browse and access the files on the machine where the service is hosted.</p>
+<h3>Step 3: Identify Computers with Constrained Delegation</h3>
+<p>Next, we check whether any computer accounts have been delegated to execute a service on another machine:</p>
+<pre><code class="language-powershell">Get-NetComputer -TrustedToAuth
+</code></pre>
+<p>We find that the computer <code>Dcrop-Aadminsrv</code> can execute the Time service on the Domain Controller.</p>
+<p><strong>Note:</strong> In this article, we will apply the technique using the <code>websvc</code> user account rather than the <code>Dcrop-Aadminsrv</code> computer account. This does not mean you cannot perform the attack via the computer account -- we are focusing on the user account simply to keep the article concise. The goal is to understand how to exploit this technique.</p>
+
+<figure class="article-img"><img src="../assets/images/constrained-delegation/3.jpeg" alt="Step 2" loading="lazy"></figure>
+<h3>Step 4: Understanding the Attack Vector</h3>
+<p>As we noted above, the user <code>websvc</code> can execute the CIFS service on <code>dcorp-mssql</code>. However, we are not interested in merely browsing files on <code>dcorp-mssql</code> -- our goal is to compromise the machine and execute operating system commands on it.</p>
+<p>The key insight here is that we can abuse alternative services on <code>dcorp-mssql</code> beyond just CIFS. Services like HOST or HTTP can be targeted instead.</p>
+<p><strong>What is the HOST service?</strong> The HOST service enables us to create scheduled tasks on the target machine running as <code>NT AUTHORITY\SYSTEM</code>. This means we can schedule a command that gives us a reverse shell with the highest privileges.</p>
+<p><strong>What is the HTTP service?</strong> The HTTP service enables us to access the machine via PowerShell Remoting, giving us an interactive remote session.</p>
+<p><strong>Important prerequisite:</strong> Before executing this technique, you must have the NTLM hash of the delegated user account (<code>websvc</code> in this case).</p>
+
+<figure class="article-img"><img src="../assets/images/constrained-delegation/4.jpeg" alt="Step 3" loading="lazy"></figure>
+<h3>Step 5: Exploit Using Rubeus with Service Alteration</h3>
+<p>Now we exploit the HTTP service on <code>dcorp-mssql</code> using the Rubeus tool. We use the S4U (Service for User) extension to request a ticket on behalf of the Administrator, but we change the target service from CIFS to HTTP using the <code>altservice</code> option:</p>
+<pre><code class="language-powershell">.\Rubeus.exe s4u /user:websvc /rc4:cc098f204c5887eaa8253e7c2749156f /impersonateuser:Administrator /msdsspn:&quot;CIFS/dcorp-mssql.dollarcorp.moneycorp.LOCAL&quot; altservice:HTTP /ptt
+</code></pre>
+<p>The <code>/ptt</code> flag injects the resulting TGS ticket directly into our current session. You could also replace <code>HTTP</code> with <code>HOST</code> in the <code>altservice</code> parameter if you wanted to use scheduled task execution instead of PowerShell Remoting.</p>
+<h3>Step 6: Connect to the Target Machine</h3>
+<p>Since we now have the TGS for the HTTP service injected into our session, we can enter a remote PowerShell session on the target machine:</p>
+<pre><code class="language-powershell">Enter-PSSession -ComputerName dcorp-mssql.dollarcorp.moneycorp.LOCAL
+</code></pre>
+<p>We now have an interactive PowerShell session on <code>dcorp-mssql</code> with Administrator-level access, achieved through Constrained Delegation abuse.</p>
+<figure class="article-img"><img src="../assets/images/constrained-delegation/5.jpeg" alt="Step 4" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>Domain Privilege Escalation - Constrained Delegation Attack</p>
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح نشرح التكينك الرابع لي الـDomain Privilege وهو الـConstrained Delegation</p>
+<p>قبل نبدا شرح التكنيك خلونا نعرف ايش هو تكنيك الـConstrained Delegation؟</p>
+<p>هذي الـFeature تمكن الـAdministrator من توظيف مستخدم او جهاز انه ينفذ خدمة مثل MSSQL او CIFS موجودة في جهاز اخر</p>
+<p>الشرح:</p>
+<p>في بداية الشرح راح نسوي Load لي اداة PowerView_dev عن طريق هذا الامر:</p>
+<p>Import-Moudle .\PowerView_dev.ps1</p>
+<p>الان راح ننفذ امر عشان نشوف هل يوجد مستخدم تم توظيفه لتنفيذ خدمة موجودة في جهاز اخر</p>
+<p>Get-Netuser -TrustedToAuth</p>
+<p>نلاحظ ان المستخدم websvc يمكنه تنفيذ خدمة CIFS على جهاز dcorp-mssql</p>
+<figure class="article-img"><img src="../assets/images/constrained-delegation/2.jpeg" alt="Step 1" loading="lazy"></figure>
+
+<p>ايش هي خدمة CIFS؟</p>
+<p>هذي الخدمة تمكنك من تصفح الملفات الخاصة بالجهاز اللي توجد عليه الخدمة</p>
+<p>طيب راح نشوف هل يوجد جهاز تم توظيفه لتنفيذ خدمة موجودة في جهاز اخر</p>
+<p>عن طريق هذا الامر:</p>
+<p>Get-netcomputer -TrustedToAuth</p>
+<figure class="article-img"><img src="../assets/images/constrained-delegation/3.jpeg" alt="Step 2" loading="lazy"></figure>
+
+<p>عندنا الجهاز Dcrop-Aadminsrv يمكنه تنفيذ خدمة Time على الـDomain Controller</p>
+<p>تنويه: هذا المقالة راح نطبق التكنيك على المتسخدم websvc وليس على جهاز Dcrop-Aadminsrv لكن هذا مايعني انه ماتقدر تطبق التكنيك عن طريق جهاز الـDcrop-Aadminsrv لكن فقط عشان المقالة لا تكون طويلة وممله ف الهدف فقط نعرف كيف راح نستغل هذا التكنيك</p>
+<p>خلونا نكمل المقالة زي ماهو موضح فوق انه المستخدم websvc يمكنه تنفيذ خدمة CIFS على جهاز dcorp-mssql لكن نحن مايهمنا تصفح ملفات جهاز dcorp-mssql يهمنا انه نخترقه وننفذ عليه OS command</p>
+<p>ف بالتالي يمكننا استغلال اي سيرفس اخرى على جهاز dcorp-mssql غير خدمة CIFS مثل خدمة HOST او HTTP</p>
+<p>ايش هي خدمة HOST :</p>
+<p>هذي الخدمة تمكننا من انشاء اوامر مجدولة على الجهاز بصلاحية nt\authority ف بالتالي ننفذ امر يجيب لنا Reverse Shell</p>
+<figure class="article-img"><img src="../assets/images/constrained-delegation/4.jpeg" alt="Step 3" loading="lazy"></figure>
+
+<p>ايش هي خدمة HTTP:</p>
+<p>هذي الخدمة تمكننا من الدخول للجهاز عن طريق PowerShell Remoteing</p>
+<p>تنويه: قبل لا تنفذ التكنيك لازم يكون معك ال NTLMS Hash الخاص في المستخدم</p>
+<p>الان راح نستغل خدمة HTTP على جهاز dcorp-mssql عن طريق اداة Rubeus عن طريق هذا الامر:</p>
+<p>.\Rubeus.exe s4u /user:websvc /rc4:cc098f204c5887eaa8253e7c2749156f /impersonateuser:Administrator /msdsspn:"CIFS/dcorp-mssql.dollarcorp.moneycorp.LOCAL" altservice:HTTP /ptt</p>
+<figure class="article-img"><img src="../assets/images/constrained-delegation/5.jpeg" alt="Step 4" loading="lazy"></figure>
+
+<p>طبعا محل الاوبشن altservice ممكن انه تحط خدمة الـHOST بدال HTTP</p>
+<p>الان راح ندخل على جهاز dcorp-mssql بما انه عندنا الـTGS الخاصة بخدمة الـHTTP عن طريق هذا الامر:</p>
+<p>Enter-PSSession -ComputerName dcorp-mssql.dollarcorp.moneycorp.LOCAL</p>
+<p>وصلنا الى نهاية المقالة</p>
+<p>شاكر لكم.</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

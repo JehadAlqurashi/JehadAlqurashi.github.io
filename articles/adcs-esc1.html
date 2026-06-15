@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>ADCS-ESC1 | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">active-directory</a><span class="sep">/</span><span>ADCS-ESC1</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">active-directory</span>
+<span class="post-date">2024-01-15</span>
+</div>
+<h1 class="post-title">ADCS-ESC1</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will explore the first Domain Privilege Escalation technique through Active Directory Certificate Services (ADCS).</p>
+<h2>What is Active Directory Certificate Services (ADCS)?</h2>
+<p>In short, ADCS is a Windows Server feature that allows Domain Admins to create certificates for controlling user and device permissions within an Active Directory environment. It enables specific groups or machines to request certificates from a Certificate Authority (CA), which can then be used to access a service, log into a specific website, decrypt a particular file, and much more.</p>
+<h2>What is the ESC-1 Technique?</h2>
+<p>In this technique, we will exploit a specific certificate template through the Subject Alternative Name (SAN). The SAN allows an attacker to request a certificate on behalf of another user, such as a Domain Admin, by substituting the User Principal Name (UPN). However, this requires certain conditions to be set in the certificate template:</p>
+<ol>
+<li>The <code>msPKI-Certificate-Name-Flag</code> cell must carry the value <code>CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT</code> -- this is what allows us to exploit the Subject Alternative Name by specifying another user to request a certificate on their behalf.</li>
+<li>The <code>Extended Key Usage (EKU)</code> cell must be one of the following options: PKINIT Client Authentication, Smart Card Logon, Any Purpose, or no EKU.</li>
+<li>The group you belong to must be listed under the Enrollment Rights.</li>
+</ol>
+<h3>Tools Used</h3>
+<ul>
+<li>Rubeus</li>
+<li>PowerView</li>
+<li>Certify</li>
+</ul>
+<h2>Walkthrough</h2>
+<p>First, we are logged in as the user <code>jehad</code>.</p>
+
+<figure class="article-img"><img src="../assets/images/adcsesc/1.png" alt="Step 1" loading="lazy"></figure>
+<h3>Step 1: Enumerate Certificate Templates</h3>
+<p>Now we will run the following command using the Certify tool:</p>
+<pre><code>.\Certify.exe find
+</code></pre>
+<p>This command searches for all certificate templates along with their details, including which groups are allowed to request certificates.</p>
+<p>Looking at the output, we can see that the template named <code>ESC1-Vulnerable</code> meets all the conditions mentioned above.</p>
+
+<figure class="article-img"><img src="../assets/images/adcsesc/2.png" alt="Step 2" loading="lazy"></figure>
+<h3>Step 2: Extract the Target User's SID</h3>
+<p>Since we have identified that the <code>ESC1-Vulnerable</code> template is vulnerable, we need to extract the SID of the user we are going to target so we can request a certificate with their privileges. The user we will target is the Domain Admin (Administrator).</p>
+<p>We extract the SID using this command:</p>
+<pre><code class="language-powershell">get-netuser -identity Administrator | select objectsid
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/adcsesc/3.png" alt="Step 3" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/adcsesc/4.png" alt="Step 4" loading="lazy"></figure>
+<h3>Step 3: Request a Certificate with Administrator Privileges</h3>
+<p>Now we will run the following command using the Certify tool to request a certificate with Administrator privileges:</p>
+<pre><code>.\Certify.exe request /ca:WIN-GAA5SPNFAL9.vulnerable.local\ca-vulnerable /altname:administrator /sidextension:S-1-5-21-2470528004-2415548218-3837842802-500 /template:ESC1-Vulnerable
+</code></pre>
+<p>The certificate has now been created with Administrator privileges, but it is in PEM format. We cannot use it directly -- we need to convert it to PFX format.</p>
+
+<figure class="article-img"><img src="../assets/images/adcsesc/5.png" alt="Step 5" loading="lazy"></figure>
+<h3>Step 4: Convert the Certificate from PEM to PFX</h3>
+<p>We convert the certificate to PFX format using openssl:</p>
+<pre><code>openssl pkcs12 -in Administrator.pem -keyex -CSP &quot;Microsoft Enhanced Cryptographic Provider v1.0&quot; -export -out Administrator.pfx
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/adcsesc/6.png" alt="Step 6" loading="lazy"></figure>
+<h3>Step 5: Request a TGT Using the Certificate</h3>
+<p>Now we will use the Rubeus tool to request a TGT (Ticket Granting Ticket) for the Administrator using the certificate we just created.</p>
+<p>After requesting the TGT and injecting it into memory, we now have Domain Admin privileges. Let us run a directory listing on the Domain Controller to confirm this.</p>
+<p>The directory listing succeeds, proving we have achieved Domain Admin access through the ADCS ESC-1 vulnerability.</p>
+<figure class="article-img"><img src="../assets/images/adcsesc/7.png" alt="Step 7" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>ADCS-ESC1</p>
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح نتطرق لي اول تكنيك Domain Privilege Escalation عن طريق الـActive Directory Certificate Service</p>
+<p>ماهي الـActive Directory Service Certificate :</p>
+<p>بإختصار يعتبر الـADCS ميزة من مزايا الوندوز سيرفر وتمكن الـDomain Admins من انشاء شهادات لتحكم في صلاحية المستخدمين والأجهزة في بيئة الـActive Directory بحيث أن من الممكن السماح لقروب معين او جهاز طلب شهادة عن طريق الـCertificate Authority (CA) لتمكنه من استخدام خدمة او الدخول لموقع محدد او حتى فك تشفير ملف معين وغيره الكثير.</p>
+<p>ماهو تكنيك ESC-1:</p>
+<p>في هذا التكينك راح يتم إستغلال قالب لشهادة معينه عن طريق الـSubject Alternative Name (SAN) الـSAN بتسمح لي المهاجم بطلب شهادة لشخص اخر مثل الـDomain Admins عن طريق تعويض الـUser Principal Name(UPN) لكن هذي تطلب شروط يجب ان يتم وضعها في القالب الخاص بالشهادة:</p>
+<p>1- يجب ان تكون خلية msPKI-Certificate-Name-Flag تحمل قيمة CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT وهذا اللي راح يساعدنا في استغلال الـSubject Alternative Name بحيث نستطيع وضع مستخدم اخر لطلب شهادته (:</p>
+<figure class="article-img"><img src="../assets/images/adcsesc/1.png" alt="Step 1" loading="lazy"></figure>
+
+<p>2- يجب ان تكون خلية Extended Key Usage(EKU) ضمن احد هذي الخيارات PKINIT Client Authentication, Smart Card Logon, Any Purpose, or no EKU</p>
+<p>3- يجب ان يكون القروب المتواجد فيه ضمن الـEnrollment Rights</p>
+<p>الأدوات المستخدمة: Rubeus, PowerView, Certify</p>
+<figure class="article-img"><img src="../assets/images/adcsesc/2.png" alt="Step 2" loading="lazy"></figure>
+
+<p>الشرح:</p>
+<p>في بداية الأمر انا داخل بالمستخدم jehad كما هو موضح بالأسفل.</p>
+<p>الان راح ننفذ هذا الامر عن طريق اداة Certify:</p>
+<figure class="article-img"><img src="../assets/images/adcsesc/3.png" alt="Step 3" loading="lazy"></figure>
+
+<p>.\Certify.exe find</p>
+<p>هذا الامر راح يبحث لنا عن جميع القوالب الخاصة بالشهادات ومعلوماتها ايضا ومن القروبات اللي يمكنك طلب شهادة</p>
+<p>نلاحظ مع بعض في الصورة السابقة ان القالب اللي إسمه ESC1-Vulnerable يحمل جميع الشروط اللتي تم ذكرها مسبقا</p>
+<figure class="article-img"><img src="../assets/images/adcsesc/4.png" alt="Step 4" loading="lazy"></figure>
+
+<p>بما تم التعرف على ان القالب ESC1-Vulnerable مصاب يجب استخراج الـSID الخاص بالمستخدم اللي راح يتم استهدافه حتى نطلب شهادة بصلاحيته والمستخدم اللي راح نستهدفه Domain Admins</p>
+<p>عن طريق هذا الامر يتم إستخراج الـSID:</p>
+<p>get-netuser -identity Administrator | select objectsid</p>
+<figure class="article-img"><img src="../assets/images/adcsesc/5.png" alt="Step 5" loading="lazy"></figure>
+
+<p>الان راح ننفذ هذا الامر عن طريق اداة Certify حتى نطلب شهادة بصلاحية الـAdministrator:</p>
+<p>.\Certify.exe request /ca:WIN-GAA5SPNFAL9.vulnerable.local\ca-vulnerable /altname:administrator /sidextension:S-1-5-21-2470528004-2415548218-3837842802-500 /template:ESC1-Vulnerable</p>
+<p>الان تم انشاء Certificate بصلاحية الـAdministrator لكن بصيغة pem لكن لا نستطيع استخدامها نحتاج نحولها الى صيغة pfx عن طريق اداة openssl:</p>
+<figure class="article-img"><img src="../assets/images/adcsesc/6.png" alt="Step 6" loading="lazy"></figure>
+
+<p>openssl pkcs12 -in Administrator.pem -keyex -CSP "Microsoft Enhanced Cryptographic Provider v1.0" -export -out Administrator.pfx</p>
+<p>الان راح نستخدم اداة Rubeus حتى نطلب الـTGT الخاصة بالـAdministrator عن طريق الشهادة</p>
+<p>بعد تم طلب الـTGT وحقنها في الميموري اصبحنا نملك صلاحيات الـDomain Admins خلونا ننفذ امر directory listing على الـDomain Controller حتى نثبت ذلك.</p>
+<figure class="article-img"><img src="../assets/images/adcsesc/7.png" alt="Step 7" loading="lazy"></figure>
+
+<p>وصلنا لنهاية المقالة</p>
+<p>شاكر لكم.</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

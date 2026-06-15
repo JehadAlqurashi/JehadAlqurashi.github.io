@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Privilege Escalation - Services | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">linux-privesc</a><span class="sep">/</span><span>Privilege Escalation - Services</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">linux-privesc</span>
+<span class="post-date">2023-04-28</span>
+</div>
+<h1 class="post-title">Privilege Escalation - Services</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will explain privilege escalation through Linux services. The Linux operating system contains many services, such as cronjob, apache2, and others. In this article, we will walk through how we can exploit one of the services running on the system to escalate our privileges to root.</p>
+<h2>Enumeration</h2>
+<p>As usual, we start logged in as a low-privileged user called <code>test</code>.</p>
+<p>The first thing we do is run the linPEAS tool to enumerate the system and display things that could help us escalate our privileges.</p>
+<p>After transferring the script to the target system, we first need to give the file execute permissions:</p>
+<pre><code class="language-bash">chmod +x lin.sh
+</code></pre>
+<p>Then we run the tool:</p>
+<pre><code class="language-bash">./lin.sh
+</code></pre>
+<p>You can download the linPEAS script from its official repository:</p>
+<p><a href="https://github.com/carlospolop/PEASS-ng/tree/master/linPEAS">https://github.com/carlospolop/PEASS-ng/tree/master/linPEAS</a></p>
+<p>In the output, linPEAS tells us that there is a service file that we can both read and write to. This is a significant finding because writable service files can be abused for privilege escalation.</p>
+<h2>Checking Prerequisites</h2>
+<p>Before modifying the service file, we need to understand an important detail: some services are configured to start automatically at boot time, meaning they launch as soon as the system starts. Generally, if a service is not set to start at boot, we cannot start it manually without elevated privileges, which we do not have.</p>
+<h3>Check if the Service Starts at Boot</h3>
+<p>We need to verify whether this service is enabled to start at boot time:</p>
+<pre><code class="language-bash">systemctl list-unit-files | grep import
+</code></pre>
+<p>We can see that the service is marked as <code>enable</code>, which means it will start when the system boots or reboots. This is exactly what we need.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-services/1.jpeg" alt="Step 1" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-services/10.png" alt="Step 2" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-services/2.png" alt="Step 3" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-services/3.png" alt="Step 4" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-services/4.png" alt="Step 5" loading="lazy"></figure>
+<h3>Check if We Can Reboot the System</h3>
+<p>We also need to verify whether we have permission to reboot the system:</p>
+<pre><code class="language-bash">sudo -l
+</code></pre>
+<p>The output confirms that we do have permission to reboot the system. This is the second prerequisite we needed.</p>
+<h2>Exploitation</h2>
+<p>Now that both prerequisites are met (the service starts at boot and we can reboot), we proceed to modify the service file.</p>
+<p>We need to edit the <code>ExecStart</code> directive in the service file. Since the service runs with root privileges, any command we place in <code>ExecStart</code> will execute as root. Our goal is to add a new user with root privileges to <code>/etc/passwd</code>.</p>
+<p>The command we write in the <code>ExecStart</code> field is:</p>
+<pre><code class="language-bash">/bin/bash -c 'echo &quot;jehad::0:0:root:/root:/usr/bin/bash&quot; &gt;&gt; /etc/passwd'
+</code></pre>
+<p>This command appends a new user called <code>jehad</code> with no password, UID 0, and GID 0 (root-level privileges) to the <code>/etc/passwd</code> file.</p>
+<h2>Triggering the Exploit</h2>
+<p>Now we reboot the system. Since we confirmed we have permission to reboot, and since this service is configured to start at boot, the service will execute our malicious command when the system comes back up. The command will add the user <code>jehad</code> to the <code>/etc/passwd</code> file with root privileges.</p>
+<p>To reboot the system:</p>
+<pre><code class="language-bash">sudo /usr/sbin/reboot
+</code></pre>
+<p>We wait about a minute for the system to restart. After it comes back up, we connect back with the <code>test</code> user.</p>
+<h2>Gaining Root Access</h2>
+<p>After the system reboots, we switch to the <code>jehad</code> user without needing a password, since the account was created with an empty password field:</p>
+<pre><code class="language-bash">su jehad
+</code></pre>
+<h2>Result</h2>
+<p>With this, we have successfully obtained the highest privilege level on the system by exploiting a writable service file. The key elements of this attack were: finding a writable service file, confirming it runs at boot with root privileges, having reboot permissions, and modifying the <code>ExecStart</code> directive to inject our malicious command.</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-services/5.png" alt="Step 6" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-services/6.png" alt="Step 7" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-services/7.png" alt="Step 8" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-services/8.png" alt="Step 9" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-services/9.png" alt="Step 10" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>مقدمة:</p>
+<p>في هذي المقالة راح نشرح رفع الصلاحيات عن طريق Services طبعا نظام اللينكس يحتوي على خدمات كثير مثل ال cronjob او ال apache2 في هذي المقالة راح اسرد لكم كيف ممكن نستغل احد السيرفس اللي على النظام ونرفع صلاحياتنا الى root</p>
+<p>اول شي كالعادة انا داخل بيوزر محدود الصلاحية اللي هو يوز test</p>
+<p>اول شي راح نشغل اداة linpease عشان تسوي enumerate للنظام بحيث تعرض لنا الأشياء اللي ممكن نرفع صلاحيتنا عن طريقها</p>
+<p>طيب معد مانقلت السكربت الى النظام اللي راح نستغله اول شي راح نعطي الملف صلاحية تنفيذ عن طريق هذا الأمر:</p>
+<p>chmod +x lin.sh</p>
+<p>بعد كذا نشغل الأداة راح نكتب كذا</p>
+<p>lin.sh/.</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-services/1.jpeg" alt="Step 1" loading="lazy"></figure>
+
+<p>رابط السكربت للي وده يحمله:</p>
+<p>https://github.com/carlospolop/PEASS-ng/tree/master/linPEAS</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-services/10.png" alt="Step 2" loading="lazy"></figure>
+
+<p>نلاحظ ان linpease تقول ان في ملف سيرفس يمكننا قراءته والكتابة عليه</p>
+<p>طيب خلونا نطلع على ملف السيرفس ونعدل عليه بس قبل نعدل خلونا نفهم شيء مهم بعض السيرفس تشغل مع النظام عند الأقلاع يعني اول مايشتغل النظام تشتغل هذي الخدمة و عموما السيرفسيز اذا ماتشتغل مع الأقلاع نحن مانقدر نسوي لها start الا بصلاحية عالية ونحن صلاحياتنا محدودة ف خلونا نشوف هل السيرفس هذي تشتغل مع إقلاع النظام او لا عن طريق هذا الأمر:</p>
+<p>systemctl list-unit-files | grep import</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-services/2.png" alt="Step 3" loading="lazy"></figure>
+
+<p>نلاحظ انه السيرفرس امامها enable مما يعني انه تشتغل عند تشغيل النظام او اعادة تشغيلة ف نحتاج كمان الى نشوف هل عندنا صلاحية الى انه نسوي اعادة تشغيل للنظام او لا عن طريق هذا الأمر</p>
+<p>sudo -l</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-services/3.png" alt="Step 4" loading="lazy"></figure>
+
+<p>طيب نلاحظ انه عندنا صلاحية الى اعادة تشغيل النظام</p>
+<p>الان راح نبدا نعدل على الملف حق السيرفس بعد ماشفنا المتطلبات وتوافقت مع اللي نبيه</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-services/4.png" alt="Step 5" loading="lazy"></figure>
+
+<p>فقط راح اعدل محل</p>
+<p>ExecStart</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-services/5.png" alt="Step 6" loading="lazy"></figure>
+
+<p>بما انه السيرفس يتنفذ بصلاحية root راح اضيف يوزر جديد صلاحيته عاليه في ملف</p>
+<p>etc/passwd/</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-services/6.png" alt="Step 7" loading="lazy"></figure>
+
+<p>ف راح يكون الأمر اللي نكتبه في ExecStart كالتالي:</p>
+<p>'bin/bash -c ' echo  "jehad::0:0:root:/root:/usr/bin/bash" &gt;&gt; /etc/passwd/</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-services/7.png" alt="Step 8" loading="lazy"></figure>
+
+<p>اللحين راح نسوي اعادة تشغيل للنظام بما انه عندنا صلاحية انه نسوي اعادة تشغيل للنظام وعشان زي ماقلنا قبل انه هذي السيرفس تشتغل اذا تم تشغيل النظام او اعادة تشغيل النظام ف هذي السيرفس راح تنفذ الأمر اللي كتبناه فيها اللي هو تضيف يوزر اسمه jehad في ملف passwd بصلاحية root :)</p>
+<p>امر اعادة التشغيل :d</p>
+<p>sudo /usr/sbin/reboot</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-services/8.png" alt="Step 9" loading="lazy"></figure>
+
+<p>راح ننتظر دقيقه حتى يسوي النظام اعادة تشغيل وبعدها راح نشبك على يوز test ونحول الى يوز jehad بدون نحتاج باسورد للدخول</p>
+<p>وبكذا حصلنا على اعلى صلاحية على النظام عن طريق استغلال ال services اتمنى المقالة نالت على اعجابكم</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-services/9.png" alt="Step 10" loading="lazy"></figure>
+
+<p>شكرا لكم.</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

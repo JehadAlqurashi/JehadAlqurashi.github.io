@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Domain Privilege Escalation - AS-REP Attack | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">active-directory</a><span class="sep">/</span><span>Domain Privilege Escalation - AS-REP Attack</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">active-directory</span>
+<span class="post-date">2023-10-15</span>
+</div>
+<h1 class="post-title">Domain Privilege Escalation - AS-REP Attack</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will explain the second Domain Privilege Escalation technique: AS-REP Roasting.</p>
+<p>Before we begin, let us understand what the AS-REP technique is.</p>
+<h2>What is AS-REP Roasting?</h2>
+<p>The idea behind this technique is that some Active Directory administrators disable a feature called Kerberos Pre-Authentication for certain user accounts. When Kerberos Pre-Authentication is disabled for a user, anyone can send an AS-REQ (Authentication Service Request) to the KDC on behalf of that user without needing to provide their password first. The KDC will respond with an AS-REP message that contains the user's TGT (Ticket Granting Ticket), which is encrypted with the user's NTLM hash. Since the attacker now has this encrypted blob, they can attempt to crack it offline to recover the user's plaintext password.</p>
+<h2>Step-by-Step Walkthrough</h2>
+<h3>Step 1: Load the PowerView Module</h3>
+<p>First, we load the PowerView tool into our PowerShell session:</p>
+<pre><code class="language-powershell">Import-Module .\PowerView.ps1
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/as-rep/2.png" alt="Step 1" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/as-rep/3.jpeg" alt="Step 2" loading="lazy"></figure>
+<h3>Step 2: Identify Users Without Kerberos Pre-Authentication</h3>
+<p>Now we run the following command to enumerate all domain users who do not have Kerberos Pre-Authentication enabled:</p>
+<pre><code class="language-powershell">Get-DomainUser -PreauthNotRequired
+</code></pre>
+<p>We can see that the user <code>Control173User</code> does not have Kerberos Pre-Authentication enabled, making them vulnerable to the AS-REP Roasting attack.</p>
+
+<figure class="article-img"><img src="../assets/images/as-rep/4.jpeg" alt="Step 3" loading="lazy"></figure>
+<h3>Step 3: Extract the TGT Using Rubeus</h3>
+<p>Now we use the Rubeus tool to perform the AS-REP Roasting attack and extract the encrypted TGT for the vulnerable user:</p>
+<pre><code class="language-powershell">.\Rubeus.exe asreproast /user:Control173User
+</code></pre>
+<p>Rubeus sends an AS-REQ to the KDC for the specified user and captures the AS-REP response containing the encrypted ticket data. The output will be in a format that can be directly fed into a cracking tool.</p>
+
+<figure class="article-img"><img src="../assets/images/as-rep/5.jpeg" alt="Step 4" loading="lazy"></figure>
+<h3>Step 4: Crack the Hash Using John the Ripper</h3>
+<p>Now we take the extracted hash and crack it offline using John the Ripper. John will attempt to decrypt the AS-REP response using a wordlist, and if the user has a weak password, it will recover the plaintext password, giving us valid domain credentials that can be used for further lateral movement or privilege escalation.</p>
+<figure class="article-img"><img src="../assets/images/as-rep/6.jpeg" alt="Step 5" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/as-rep/7.jpeg" alt="Step 6" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح نشرح التكينك الثاني لي الـDomain Privilege وهو الـAS-REP</p>
+<p>قبل نبدا شرح التكنيك خلونا نعرف ايش هو تكنيك AS-REP ؟</p>
+<p>الفكرة من هذا التكنيك بعض الـAdministror الخاصين بالـActive Directory يمنع احد المتسخدمين من Feature تسمى Kerberos Pre-Authentication وهذا يتسبب في امكانية اخذ Ticket Granting Ticket الخاصه في هذا المستخدم اللي تم منعه من هذي الـFeature</p>
+<figure class="article-img"><img src="../assets/images/as-rep/2.png" alt="Step 1" loading="lazy"></figure>
+
+<p>الشرح:</p>
+<p>الان راح نسوي Load لي اداة Power View Dev عن طريق هذا الامر:</p>
+<figure class="article-img"><img src="../assets/images/as-rep/3.jpeg" alt="Step 2" loading="lazy"></figure>
+
+<p>Import-Module .\PowerView.ps1</p>
+<p>الان راح ننفذ هذ الامر عشان يستخرج لنا المستخدمين اللي ماعندهم Kerberos Pre-Authentication</p>
+<figure class="article-img"><img src="../assets/images/as-rep/4.jpeg" alt="Step 3" loading="lazy"></figure>
+
+<p>Get-DomainUser -PreauthNotRequired</p>
+<p>نلاحظ مع بعض ان المستخدم Control173User ماعنده Kerberos Pre-Authentication</p>
+<figure class="article-img"><img src="../assets/images/as-rep/5.jpeg" alt="Step 4" loading="lazy"></figure>
+
+<p>الان راح استخدم سكربت Rubeus عشان نستخرج الـTGT الخاص بالمستخدم عن طريق هذا الامر:</p>
+<p>.\Rubeus.exe asreproast /user:Control173User</p>
+<figure class="article-img"><img src="../assets/images/as-rep/6.jpeg" alt="Step 5" loading="lazy"></figure>
+
+<p>الان راح نسويله كراك عن طريق اداة John</p>
+<p>وصلنا الى نهاية المقالة اتمنى انها نالت على اعجابكم</p>
+<figure class="article-img"><img src="../assets/images/as-rep/7.jpeg" alt="Step 6" loading="lazy"></figure>
+
+<p>شاكر لكم.</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

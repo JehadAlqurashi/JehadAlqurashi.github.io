@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Domain Privilege Escalation - Child to Parent | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">active-directory</a><span class="sep">/</span><span>Domain Privilege Escalation - Child to Parent</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">active-directory</span>
+<span class="post-date">2023-11-10</span>
+</div>
+<h1 class="post-title">Domain Privilege Escalation - Child to Parent</h1>
+</header>
+
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>This article covers the sixth technique for Domain Privilege Escalation: Cross Forest (Child to Parent domain escalation).</p>
+<h2>What is Cross Forest?</h2>
+<p>Consider a domain named <code>dollarcorp.moneycorp.local</code>. Looking at this name, we can see that <code>dollarcorp</code> is a child domain of <code>moneycorp</code>. In this scenario, suppose we have already compromised the Domain Controller of the child domain (<code>dollarcorp</code>), but our goal is to reach the Domain Controller of the parent domain (<code>moneycorp.local</code>).</p>
+<p>This is the core idea of this article: escalating from a child domain to the parent domain by forging Kerberos tickets that include the parent domain's Enterprise Admins SID.</p>
+<h2>Prerequisites</h2>
+<p>To execute this technique, three pieces of information are required:</p>
+<ol>
+<li><strong>SID of the Enterprise Admins group</strong> in the parent domain</li>
+<li><strong>SID of the child domain</strong> (dollarcorp)</li>
+<li><strong>krbtgt hash</strong> from the child domain's Domain Controller</li>
+</ol>
+<h2>Walkthrough</h2>
+<h3>Step 1: Load PowerView</h3>
+<p>We start by loading the PowerView development version module for Active Directory enumeration:</p>
+<pre><code class="language-powershell">Import-Module .\PowerView_dev.ps1
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/cross-forest/2.jpeg" alt="Step 1" loading="lazy"></figure>
+<h3>Step 2: Extract the Enterprise Admins SID (Prerequisite 1)</h3>
+<p>The Enterprise Admins group exists in the parent domain (moneycorp.local). We need its SID because we will embed it in our forged ticket to gain enterprise-level privileges. Use the following command to extract it:</p>
+<pre><code class="language-powershell">Get-NetGroup -Identity &quot;Enterprise Admins&quot; -Domain moneycorp.local
+</code></pre>
+<p>Note the <code>objectsid</code> value from the output. This is the SID of the Enterprise Admins group in the parent domain.</p>
+
+<figure class="article-img"><img src="../assets/images/cross-forest/3.jpeg" alt="Step 2" loading="lazy"></figure>
+<h3>Step 3: Extract the Child Domain SID (Prerequisite 2)</h3>
+<p>Next, we need the SID of the child domain (<code>dollarcorp</code>). This will be used as the primary SID in our forged ticket:</p>
+<pre><code class="language-powershell">Get-DomainSID
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/cross-forest/4.jpeg" alt="Step 3" loading="lazy"></figure>
+<h3>Step 4: Connect to the Child Domain Controller</h3>
+<p>The third prerequisite (the krbtgt hash) is stored on the Domain Controller of the child domain. Since we already have a user account that is a member of the Domain Admins group in the child domain (<code>dollarcorp</code>), we can connect to its Domain Controller using PowerShell Remoting:</p>
+<pre><code class="language-powershell">Enter-PSSession -ComputerName dcorp-dc
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/cross-forest/5.jpeg" alt="Step 4" loading="lazy"></figure>
+<h3>Step 5: Extract the krbtgt Hash Using Mimikatz (Prerequisite 3)</h3>
+<p>Once we are on the child domain's Domain Controller, we use Mimikatz to dump the krbtgt account hash. The krbtgt account is used to sign all Kerberos tickets in the domain, so possessing its hash allows us to forge any ticket:</p>
+<pre><code class="language-powershell">.\mimikatz.exe &quot;lsadump::lsa /patch&quot; &quot;exit&quot;
+</code></pre>
+<p>From the output, locate the NTLM hash for the <code>krbtgt</code> account. In this example, the hash is: <code>ff46a9d8bd66c6efd77603da26796f35</code></p>
+<p>Now we have all three prerequisites gathered.</p>
+<h3>Step 6: Forge a Golden Ticket with SID History</h3>
+<p>Open a new PowerShell session with Administrator privileges. Now we use Mimikatz to create a Golden Ticket that includes the Enterprise Admins SID from the parent domain in the SID History. This is what allows us to cross the trust boundary from the child domain to the parent domain:</p>
+<pre><code>kerberos::golden /user:Administrator /domain:dollarcorp.moneycorp.local /krbtgt:ff46a9d8bd66c6efd77603da26796f35 /sid:S-1-5-21-1874506631-3219952063-538504511 /sids:S-1-5-21-280534878-1496970234-700767426-519 /ptt
+</code></pre>
+<p>Here is what each parameter does:</p>
+<ul>
+<li><code>/user:Administrator</code> -- The username to impersonate in the forged ticket.</li>
+<li><code>/domain:dollarcorp.moneycorp.local</code> -- The child domain name (the domain you are currently in).</li>
+<li><code>/krbtgt:ff46a9d8bd66c6efd77603da26796f35</code> -- The krbtgt NTLM hash extracted from the child domain's DC.</li>
+<li><code>/sid:S-1-5-21-1874506631-3219952063-538504511</code> -- The SID of the child domain (dollarcorp).</li>
+<li><code>/sids:S-1-5-21-280534878-1496970234-700767426-519</code> -- The SID of the Enterprise Admins group in the parent domain. The <code>-519</code> suffix indicates the Enterprise Admins group RID.</li>
+<li><code>/ptt</code> -- Pass the Ticket: injects the forged ticket directly into the current session's memory.</li>
+</ul>
+<p>You should substitute these values with the ones you extracted from your own environment in the previous steps.</p>
+
+<figure class="article-img"><img src="../assets/images/cross-forest/6.jpeg" alt="Step 5" loading="lazy"></figure>
+<h3>Step 7: Verify the Ticket Was Injected</h3>
+<p>After executing the command, verify that the forged ticket was successfully injected into memory:</p>
+<pre><code class="language-powershell">klist
+</code></pre>
+<p>The output should show a cached Kerberos ticket for the <code>krbtgt</code> service, confirming that the Golden Ticket is loaded in memory.</p>
+
+<figure class="article-img"><img src="../assets/images/cross-forest/7.jpeg" alt="Step 6" loading="lazy"></figure>
+<h3>Step 8: Access the Parent Domain Controller</h3>
+<p>With the Golden Ticket injected, there are several ways to gain command execution on the parent domain's Domain Controller:</p>
+<ul>
+<li>You could perform a DCSync attack to extract the NTLM hash of the parent domain's Administrator account, then use Pass the Hash to authenticate.</li>
+<li>You could create scheduled tasks on the parent DC.</li>
+</ul>
+<p>However, both of these approaches are time-consuming. The fastest method is to use Microsoft's PsExec tool to connect directly to the parent domain's Domain Controller:</p>
+<pre><code>PsExec.exe \\mcorp-dc.moneycorp.local cmd.exe
+</code></pre>
+<p>This gives us an interactive command shell on the parent domain's Domain Controller, successfully completing the escalation from the child domain to the parent domain.</p>
+<figure class="article-img"><img src="../assets/images/cross-forest/8.jpeg" alt="Step 7" loading="lazy"></figure>
+
+</div>
+
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

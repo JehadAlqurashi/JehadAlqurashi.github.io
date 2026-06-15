@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Privilege Escalation - SSH Keys | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">linux-privesc</a><span class="sep">/</span><span>Privilege Escalation - SSH Keys</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">linux-privesc</span>
+<span class="post-date">2023-08-05</span>
+</div>
+<h1 class="post-title">Privilege Escalation - SSH Keys</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will explain privilege escalation through SSH keys.</p>
+<p>SSH is a network protocol (and port) used to remotely control systems. SSH authentication uses a public key and a private key pair. A passphrase can be added to the private key -- think of it like a password that protects the private key. The reason for adding a passphrase is so that if the private key ever gets leaked, the attacker cannot use it to immediately log into the system without first knowing the passphrase.</p>
+<p>However, in this article we will learn how to extract the passphrase from a private key using the <code>john</code> tool (John the Ripper), which will allow us to log in as the root user.</p>
+<h2>The Attack</h2>
+<h3>Initial Access</h3>
+<p>As usual, we are logged in as the user <code>test</code> and we want to reach root privileges.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-ssh-keys/1.png" alt="Step 1" loading="lazy"></figure>
+<h3>Enumeration with LinPEAS</h3>
+<p>We download and run the <code>linpeas</code> tool and review the results together.</p>
+<p>We notice that LinPEAS has found a private SSH key on the system.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-ssh-keys/2.png" alt="Step 2" loading="lazy"></figure>
+<h3>Downloading the Key</h3>
+<p>We download the private key file to our Kali machine so we can work with it. Before we can use the private key, we need to set the correct file permissions -- SSH requires strict permissions on key files:</p>
+<pre><code class="language-bash">chmod 600 id_rsa
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-ssh-keys/3.png" alt="Step 3" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-ssh-keys/4.png" alt="Step 4" loading="lazy"></figure>
+<h3>Attempting SSH Login</h3>
+<p>Now we try to log in as root using SSH with this private key:</p>
+<pre><code class="language-bash">ssh -i id_rsa root@localhost
+</code></pre>
+<p>We notice that it prompts us for a passphrase. Since we do not know the passphrase, we will use John the Ripper to brute force it.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-ssh-keys/5.png" alt="Step 5" loading="lazy"></figure>
+<h3>Extracting the Passphrase with John the Ripper</h3>
+<p>Before we can use John, we need to convert the private key into a format that John can understand. We do this using the <code>ssh2john</code> tool:</p>
+<pre><code class="language-bash">ssh2john id_rsa &gt; id_rsa.hash
+</code></pre>
+<p>Now we can use John the Ripper to brute force the private key and extract the passphrase. It will require a wordlist, so we will use the well-known <code>rockyou</code> wordlist that comes pre-installed on Kali:</p>
+<pre><code class="language-bash">john id_rsa.hash --wordlist=/usr/share/wordlists/rockyou.txt
+</code></pre>
+<p>We can see that the passphrase was cracked and it is <code>abc123</code>.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-ssh-keys/6.png" alt="Step 6" loading="lazy"></figure>
+<h3>Gaining Root Access</h3>
+<p>Now we try to log in again as root, this time entering the passphrase <code>abc123</code> when prompted:</p>
+<pre><code class="language-bash">ssh -i id_rsa root@localhost
+</code></pre>
+<p>With that, we have successfully escalated our privileges to root through SSH Keys. The private key was found on the target system by LinPEAS, and its weak passphrase was cracked using John the Ripper with the rockyou wordlist.</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-ssh-keys/7.png" alt="Step 7" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح نشرح رفع الصلاحيات عن طريق ال ssh</p>
+<p>ال ssh يعتبر بورت ويستخدم للتحكم في النظام عن بعد</p>
+<p>ال ssh يتكون من مفتاح عام ومفتاح خاص المفتاح الخاص ممكن انه تضيف عليه paraphrase طيب ايش هو passphrase ؟</p>
+<p>تقدر تقول زي الباسورد تضيفه على المفتاح الخاص طيب ليش نضيف الباسورد عشان لا سمح الله صارله تسريب مايقدر المخترق يستخدم المفتاح الخاص ويدخل للنظام على طول الا لما يعرف ال passphrase</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-ssh-keys/1.png" alt="Step 1" loading="lazy"></figure>
+
+<p>بس نحن راح نتعلم كيف ممكن نستخرج ال passphrase من المفتاح الخاص عن طريق اداة john عشان نقدر نسجل دخول بيوزر ال root</p>
+<p>الشرح:</p>
+<p>كالعادة انا داخل بيوزر test ونبي نوصل الى صلاحية root</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-ssh-keys/2.png" alt="Step 2" loading="lazy"></figure>
+
+<p>راح احمل اداة linpeas ونشوف النتايج مع بعض</p>
+<p>نلاحظ ان linpeas لقي لنا مفتاح خاص لي ssh</p>
+<p>راح انزل الملف عندي على الكالي ونجرب نسجل دخول بحساب ال root عن طريق ال ssh ب استخدام هذا المفتاح الخاص اللي لقيناه على النظام</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-ssh-keys/3.png" alt="Step 3" loading="lazy"></figure>
+
+<p>بس قبل كل شي عشان نقدر نستخدم المفتاح الخاص لاز نعطيه صلاحيات معينه عن طريق هذا الامر:</p>
+<p>chmod 600 id_rsa</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-ssh-keys/4.png" alt="Step 4" loading="lazy"></figure>
+
+<p>بعدها ننفذ هذا الامر:</p>
+<p>ssh -i id_rsa root@localhost</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-ssh-keys/5.png" alt="Step 5" loading="lazy"></figure>
+
+<p>نلاحظ انه طلبني passphrase بس انا معرفه ف راح نستخدم اداة John عشان نسوي Brute Force على passphrase اللي موجود في المفتاح الخاص</p>
+<p>قبل نستخدم اداة john راح تطلب مننا انه نحول المفتاح الخاص بصيغة خاصه فيها عن طريق اداة خاصه فيها اسمها ssh2john</p>
+<p>الان نقدر نستخدم اداة john عشان نسوي Brute Force على المفتاج الخاص عشان نستخرج ال passphrase</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-ssh-keys/6.png" alt="Step 6" loading="lazy"></figure>
+
+<p>طبعا راح يطلب مننا ملف فيه لستة كلمات ف راح انا استخدم لسته معروفه اسمها rockyou موجودة على الكالي</p>
+<p>نلاحظ مع بعض ان passphrase طلع abc123</p>
+<p>الان نجرب نسجل دخول بحساب ال root</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-ssh-keys/7.png" alt="Step 7" loading="lazy"></figure>
+
+<p>وبكذا رفعنا صلاحياتنا عن طريق SSH Keys</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

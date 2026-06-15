@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Privilege Escalation - Capabilities | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">linux-privesc</a><span class="sep">/</span><span>Privilege Escalation - Capabilities</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">linux-privesc</span>
+<span class="post-date">2023-05-05</span>
+</div>
+<h1 class="post-title">Privilege Escalation - Capabilities</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will explain privilege escalation through Linux capabilities. Let us first understand what capabilities are and how they work.</p>
+<p>The concept behind capabilities is that you can grant a binary file the ability to perform specific privileged operations -- for example, the ability to read or write any file on the system, or the ability to change the owner of any file. This is done without giving the binary full root privileges.</p>
+<p>For example, the capability <code>CAP_DAC_OVERRIDE</code> allows a binary to read and write any file on the system. There are many different types of capabilities available in Linux.</p>
+<p>For more information on capabilities, refer to the Linux man pages.</p>
+<p>In this article, we want to identify which binary files on the system have capabilities assigned to them, and specifically which capabilities could be useful for privilege escalation.</p>
+<h2>Enumeration</h2>
+<p>As usual, we start logged in as a low-privileged user called <code>test</code>.</p>
+<p>To discover which binary files have capabilities assigned to them, we run the following command:</p>
+<pre><code class="language-bash">getcap -r / 2&gt;/dev/null
+</code></pre>
+<p>This command recursively searches the entire filesystem for files with capabilities set, suppressing any permission-denied errors.</p>
+<p>In the output, we can see several binaries that have capabilities assigned. For example, the <code>ping</code> binary has the <code>CAP_NET_RAW</code> capability, which allows it to capture network packets. This is a default capability that comes with the system installation and is not interesting to us.</p>
+<p>What is interesting is the Python binary, which has a capability that allows it to change the owner of any file and assign it to another user. This is extremely useful for privilege escalation.</p>
+<h2>Exploitation</h2>
+<p>Since we can change the owner of any file, the plan is to change the owner of the <code>/etc/passwd</code> file from <code>root</code> to our user <code>test</code>. This will allow us to edit the file and add a new high-privileged user.</p>
+<p>We can confirm that the current owner of <code>/etc/passwd</code> is <code>root</code>. We are going to change it to our user <code>test</code> using the Python binary, because as mentioned, the Python binary has the capability to change file ownership.</p>
+<h3>Step 1: Identify Your UID and GID</h3>
+<p>Before executing the exploit, we need to know the UID and GID of our user. We can find this with the following command:</p>
+<pre><code class="language-bash">id
+</code></pre>
+<p>The output shows:</p>
+<ul>
+<li><code>uid=1001</code></li>
+<li><code>gid=1001</code></li>
+</ul>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-capabilities/1.jpeg" alt="Step 1" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-capabilities/2.png" alt="Step 2" loading="lazy"></figure>
+<h3>Step 2: Change Ownership of /etc/passwd</h3>
+<p>Now we execute the command using the Python binary to change the ownership of <code>/etc/passwd</code> to our user:</p>
+<pre><code class="language-bash">/usr/bin/python3.8 -c 'import os;os.chown(&quot;/etc/passwd&quot;,1001,1001)'
+</code></pre>
+<p>This command uses Python's <code>os.chown()</code> function to change the owner and group of <code>/etc/passwd</code> to UID 1001 and GID 1001, which correspond to our <code>test</code> user. The Python binary is able to do this because of the capability assigned to it.</p>
+<p>After running the command, we can verify that the file owner has been changed from <code>root</code> to <code>test</code>.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-capabilities/3.png" alt="Step 3" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-capabilities/4.png" alt="Step 4" loading="lazy"></figure>
+<h3>Step 3: Add a New Privileged User</h3>
+<p>Now that we own the <code>/etc/passwd</code> file, we can edit it and add a new user with root privileges. We simply append the following line to the end of the file:</p>
+<pre><code>jehad::0:0:root:/root:/bin/bash
+</code></pre>
+<p>This creates a new user called <code>jehad</code> with no password (empty password field), UID 0 and GID 0 (which are root's identifiers), the home directory set to <code>/root</code>, and the shell set to <code>/bin/bash</code>.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-capabilities/5.png" alt="Step 5" loading="lazy"></figure>
+<h3>Step 4: Switch to the New User</h3>
+<p>Now we switch from our current user to the newly created <code>jehad</code> user:</p>
+<pre><code class="language-bash">su jehad
+</code></pre>
+<p>Since the user has no password set, we can switch to it without being prompted for a password.</p>
+<h2>Result</h2>
+<p>With this, we have successfully escalated our privileges to the highest level on the system (root) by exploiting the capabilities assigned to the Python binary.</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-capabilities/6.png" alt="Step 6" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-capabilities/7.png" alt="Step 7" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>Privilege Escalation(capabilities)</p>
+<p>تصعيد الصلاحية عن طريق ال capabilities</p>
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح نشرح رفع الصلاحيات عن طريق capabilities خلونا نشرح اول شي ايش هي capabilities و ايش طريقة عملها ال capabilities فكرتها ان ممكن تعطي لملف باينري القدرة على قراءة او الكتابة على اي ملف على النظام او مثلا القدرة على تغيير ال owner تبع اي ملف</p>
+<p>مثال عندنا القدرة هذي :</p>
+<p>CAP_DAC_OVERRIDE تسمح لنا بقراءة اي ملف و الكتابة عليه طبعا في انواع كثير من القدرات</p>
+<p>اتمنى وضحت فكرة ال capabilities لو شي بسيط للاطلاع اكثر:</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-capabilities/1.jpeg" alt="Step 1" loading="lazy"></figure>
+
+<p>اليوم ف مقالتنا حابين نشوف ايش ملفات الباينري اللي تحتوي على قدرات وايش القدرات اللي ممكن تنفذها بحيث تفيدنا ف رفع الصلاحيات</p>
+<p>اول شي كالعادة انا داخل بيوزر محدود الصلاحية اللي هو يوز test</p>
+<p>كيف راح نعرف هل يوجد ملفات باينري تحتوي على قدرات تفيدنا في رفع الصلاحيات عن طريق الأمر هذا:</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-capabilities/2.png" alt="Step 2" loading="lazy"></figure>
+
+<p>getcap -r / 2&gt;/dev/null</p>
+<p>نلاحظ ان في مجموعة من ملفات الباينريز يملكون قدرات مثال الباينري اللي اسمه ping يحتوي على قدرة اللي هي CAP_NET_RAW طبعا هذي القدرة تمكن الملف من التقاط البكت طبعا هذا الباينري ديفلوت يكون لدية القدرة من تنصب النظام وهذا مايهمنا اللي يهمنا ملف الباينري حق البايثون يحتوي على قدرة تمكنة من تغيير المالك ل اي ملف واسناده الى مستخدم اخر</p>
+<p>اللحين مدام انه نقدر نغير مالك اي ملف راح اغير مالك ملف ال passwd اللي هو root واسنده لليوزر حقي اللي هو test بحيث اقدر اعدل على الملف واضيف يوزر عالي الصلاحية</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-capabilities/3.png" alt="Step 3" loading="lazy"></figure>
+
+<p>نلاحظ انه اليوزر المالك لملف passwd هو root طبعا راح اغيره الى اليوزر حقنا اللي هو test عن طريق ملف الباينري حق البايثون لان زي ماذكرت قبل انه ملف الباينري حق البايثون يحتوي على قدرة تغيير المالك الى اي ملف واسنادة الى مستخدم اخر بس قبل ننفذ الامر لازم نعرف ال uid و ال gid تبع اليوزر حقنا عن طريق امر :</p>
+<p>id</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-capabilities/4.png" alt="Step 4" loading="lazy"></figure>
+
+<p>نلاحظ ال</p>
+<p>uid=1001</p>
+<p>gid=1001</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-capabilities/5.png" alt="Step 5" loading="lazy"></figure>
+
+<p>الان راح ننفذ الامر اللي هو :</p>
+<p>/usr/bin/python3.8 -c 'import os;os.chown("/etc/passwd",1001,1001)'</p>
+<p>نلاحظ ان تغير مالك الملف الى يوزرنا اللي هو test طبعا اللحين راح اعدل على الملف واضيف يوزر جديد عالي الصلاحية فقط راح اضيف هذا الامر اخر الملف</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-capabilities/6.png" alt="Step 6" loading="lazy"></figure>
+
+<p>jehad::0:0:root:/root:/bin/bash</p>
+<p>فقط اللحين راح نغير من يوزرنا الى يوزر jehad عن طريق هذا الأمر:</p>
+<p>su jehad</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-capabilities/7.png" alt="Step 7" loading="lazy"></figure>
+
+<p>وبكذا وصلنا الى اعلى صلاحية على النظام</p>
+<p>شاكر لكم .</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

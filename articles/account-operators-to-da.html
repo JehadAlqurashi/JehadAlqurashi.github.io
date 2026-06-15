@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Account Operators To DA | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">active-directory</a><span class="sep">/</span><span>Account Operators To DA</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">active-directory</span>
+<span class="post-date">2024-01-10</span>
+</div>
+<h1 class="post-title">Account Operators To DA</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<h3>What is the Account Operators Group?</h3>
+<p>Members of the Account Operators group can modify members of other groups or change the passwords of users in those groups. However, there is a condition: the target user must not be an Administrator or a member of any of the following groups: Server Operators, Account Operators, Backup Operators, or Print Operators. Therefore, members of the Account Operators group do not have a clear direct path to reach Domain Admins or the Domain Controller -- unless they can exploit another group that holds specific privileges, such as write permissions on the Domain Controller or on the Domain Admins group.</p>
+<h2>Walkthrough</h2>
+
+<figure class="article-img"><img src="../assets/images/account-operators/1.png" alt="Step 1" loading="lazy"></figure>
+<h3>Step 1: Verify Group Membership</h3>
+<p>First, we are logged in as the user <code>jehad</code>. We will run a command to check whether the user <code>jehad</code> is a member of the Account Operators group.</p>
+<p>As we can see in the output, the user <code>jehad</code> is indeed a member of the Account Operators group.</p>
+
+<figure class="article-img"><img src="../assets/images/account-operators/2.png" alt="Step 2" loading="lazy"></figure>
+<h3>Step 2: Search for Exploitable Groups with DACLs</h3>
+<p>Since there is no clear direct path to the Domain Controller or Domain Admins, we will search for a group that holds DACLs (Discretionary Access Control Lists) on the Domain Controller or the Domain Admins group.</p>
+<p>Looking at the results, we can see that the <code>newAdmins</code> group has Write Property permissions. This means we can exploit the Resource Based Constrained Delegation (RBCD) technique. This technique has been covered in a previous article.</p>
+
+<figure class="article-img"><img src="../assets/images/account-operators/3.png" alt="Step 3" loading="lazy"></figure>
+<h3>Step 3: Add Our User to the Target Group</h3>
+<p>Now we will add our user <code>jehad</code> to the <code>newAdmins</code> group using the following command:</p>
+<pre><code class="language-powershell">add-domaingroupmember -Identity &quot;newAdmins&quot; -Member &quot;jehad&quot;
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/account-operators/4.png" alt="Step 4" loading="lazy"></figure>
+<h3>Step 4: Exploit RBCD to Reach the Domain Controller</h3>
+<p>Now that the user <code>jehad</code> has been added to the <code>newAdmins</code> group, we will exploit the RBCD technique to gain access to the Domain Controller.</p>
+<p>We will use the SharpAllowedToAct tool because it automates the RBCD technique for us.</p>
+
+<figure class="article-img"><img src="../assets/images/account-operators/5.png" alt="Step 5" loading="lazy"></figure>
+<h3>Step 5: Generate a Password Hash with Rubeus</h3>
+<p>Now we will use the Rubeus tool to create a password hash using the same password that was set in the SharpAllowedToAct command:</p>
+<pre><code class="language-powershell">Invoke-Rubeus -Command &quot;hash /password:Tim!213$ /user:attack1$ /domain:vulnerable.local&quot;
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/account-operators/6.png" alt="Step 6" loading="lazy"></figure>
+<h3>Step 6: Exploit LDAP for Delegation</h3>
+<p>Now we will run the following command to exploit LDAP, since we are applying the technique against the Domain Controller.</p>
+
+<figure class="article-img"><img src="../assets/images/account-operators/7.png" alt="Step 7" loading="lazy"></figure>
+<h3>Step 7: Perform DCSync with Mimikatz</h3>
+<p>Now we will use Mimikatz to perform a DCSync attack and extract the NTLM hash of the Domain Admin using the following command:</p>
+<pre><code>.\mimikatz.exe &quot;lsadump::dcsync /user:Administrator /domain:vulnerable.local&quot; &quot;exit&quot;
+</code></pre>
+<p>The DCSync attack succeeds, and we have successfully extracted the Administrator's NTLM hash, achieving full domain compromise.</p>
+<figure class="article-img"><img src="../assets/images/account-operators/8.png" alt="Step 8" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>ماهو قروب الـ Account Operators ؟</p>
+<p>اعضاء قروب Account Operators يمكنهم التعديل على اعضاء قروب اخر او تغيير الباسورد الخاص بالأعضاء المتواجدين في القروبات الأخرى لكن بشرط يجب ان لا يكون المستخدم Administrator او احد هذي القروبات Server Operators, Account Operators, Backup Operators, Print Operators ف بالتالي اعضاء قروب Account Operators ماعندهم طريق واضح يوصلهم الى Domain Admins او Domain Controller الا ان يتم استغلال قروب اخر يملك صلاحيات معينه مثلا على الـ Domain Controller او قروب الـ Domain Admins .</p>
+<p>الشرح:</p>
+<p>في الاول انا داخل بالمستخدم jehad وراح ننفذ هالأمر ونشوف هل المستخدم jehad ضمن قروب Account Operators او لا:</p>
+<figure class="article-img"><img src="../assets/images/account-operators/1.png" alt="Step 1" loading="lazy"></figure>
+
+<p>زي مانلاحظ في الصورة ان المستخدم jehad ضمن قروب Account Operators</p>
+<p>بما انه مافي طريق واضح يوصلنا الى الـ Domain Controller او Domain Admins ف راح نبحث عن قروب يملك DACLs على الـ Domain Controller او الـ Domain Admins عن طريق هذا الامر:</p>
+<figure class="article-img"><img src="../assets/images/account-operators/2.png" alt="Step 2" loading="lazy"></figure>
+
+<p>زي مانلاحظ ان قروب newAdmins يمتكلون Write Property في بإمكاننا إستغلال تكنيك Resource Bassed Constrained Delegation (RBCD) وطبعا هذا التكنيك تم شرحه مسبقا</p>
+<p>الان راح اضيف المستخدم الخاص بنا اللي هو jehad الى قروب newAdmins عن طريق هذا الأمر:</p>
+<figure class="article-img"><img src="../assets/images/account-operators/3.png" alt="Step 3" loading="lazy"></figure>
+
+<p>add-domaingroupmember -Identity "newAdmins" -Member "jehad"</p>
+<p>الان بعد ان تم اضافة المستخدم jehad الى قروب newAdmins الان راح نستغل تكنيك RBCD حتى نوصل لي الـ Domain Controller</p>
+<figure class="article-img"><img src="../assets/images/account-operators/4.png" alt="Step 4" loading="lazy"></figure>
+
+<p>راح نستخدم اداة SharpAllowedToAct لانها تسوي Automate لي التكنيك</p>
+<figure class="article-img"><img src="../assets/images/account-operators/5.png" alt="Step 5" loading="lazy"></figure>
+
+<p>الان راح نستخدم اداة Rubeus حتى ننشأ باسورد بنفس الباسورد اللي تم وضعه في الامر الخاص بأداة SharpAllowedToAct عن طريق هذا الامر:</p>
+<p>Invoke-Rubeus -Command "hash /password:Tim!213$ /user:attack1$ /domain:vulnerable.local"</p>
+<figure class="article-img"><img src="../assets/images/account-operators/6.png" alt="Step 6" loading="lazy"></figure>
+
+<p>الان راح ننفذ هذا الامر حتى نستغل الـ Ldap بما ان راح نطبق التكنيك على الـ Domain Controller</p>
+<p>الان راح نستخدم Mimikatz حتى نسوي Dcsync ونستخرج NTLM الخاص في الـ Domain Admin عن طريق هذا الامر:</p>
+<figure class="article-img"><img src="../assets/images/account-operators/7.png" alt="Step 7" loading="lazy"></figure>
+
+<p>.\mimikatz.exe "lsadump::dcsync /user:Administrator /domain:vulnerable.local" "exit"</p>
+<p>وصلنا لنهاية المقالة</p>
+<figure class="article-img"><img src="../assets/images/account-operators/8.png" alt="Step 8" loading="lazy"></figure>
+
+<p>شاكر لكم</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

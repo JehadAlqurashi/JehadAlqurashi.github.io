@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Privilege Escalation - Misconfiguration | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">linux-privesc</a><span class="sep">/</span><span>Privilege Escalation - Misconfiguration</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">linux-privesc</span>
+<span class="post-date">2023-04-05</span>
+</div>
+<h1 class="post-title">Privilege Escalation - Misconfiguration</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will explain one of the Linux privilege escalation techniques. This technique relies on misconfiguration caused by the server administrator, specifically when they modify the permissions of a sensitive file in a way that allows any user to read it.</p>
+<h3>What is Misconfiguration?</h3>
+<p>Misconfiguration is the failure to properly implement all security controls for a server or web application, or implementing security controls but doing so with errors. In the context of privilege escalation, it often means that sensitive files have overly permissive access rights.</p>
+<h2>Enumeration</h2>
+<p>As usual, we start logged in as the <code>test</code> user, and our goal is to reach root privileges.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-misc-part-one/1.jpeg" alt="Step 1" loading="lazy"></figure>
+<h3>Running linPEAS</h3>
+<p>We will use the linPEAS tool. This tool searches the system for potential privilege escalation vectors -- things that might help you elevate your privileges.</p>
+<p>You can download linPEAS from:</p>
+<p><a href="https://github.com/carlospolop/PEASS-ng/tree/master/linPEAS">https://github.com/carlospolop/PEASS-ng/tree/master/linPEAS</a></p>
+<p>We download it to the <code>/tmp/</code> directory since it is world-writable. The download command is:</p>
+<pre><code class="language-bash">wget https://raw.githubusercontent.com/carlospolop/PEASS-ng/master/linPEAS/linpeas.sh
+</code></pre>
+<p>After downloading, we give the file execute permissions and then run it:</p>
+<pre><code class="language-bash">chmod 777 linpeas.sh
+./linpeas.sh
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-misc-part-one/2.png" alt="Step 2" loading="lazy"></figure>
+<h3>Identifying the Misconfiguration</h3>
+<p>After reading through the linPEAS output, we notice that we can read the <code>/etc/shadow</code> file. This is a critical misconfiguration.</p>
+<p>The <code>/etc/shadow</code> file is a highly sensitive file because it contains the password hashes for all users on the system. Under normal circumstances, only root can read this file. The fact that we can read it means the server administrator has misconfigured the file permissions.</p>
+<h2>Exploitation</h2>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-misc-part-one/3.png" alt="Step 3" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-misc-part-one/4.png" alt="Step 4" loading="lazy"></figure>
+<h3>Extracting the Root Hash</h3>
+<p>What we care about is the root password hash, since root is the highest privilege level on the system.</p>
+<p>We create a file and paste the entire root hash line into it. In this example, we save it to a file called <code>hash</code>:</p>
+<pre><code class="language-bash">cat /etc/shadow | grep root &gt; hash
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-misc-part-one/5.png" alt="Step 5" loading="lazy"></figure>
+<h3>Cracking the Hash with John the Ripper</h3>
+<p>Now we will crack the hash using the <strong>John the Ripper</strong> tool, which most of you are likely familiar with or have at least heard of. John the Ripper is a password cracking tool that compares password hashes against a wordlist to find the matching plaintext password.</p>
+<p>The command to crack the hash is:</p>
+<pre><code class="language-bash">john hash --wordlist=/usr/share/wordlists/rockyou.txt
+</code></pre>
+<p>In the <code>--wordlist</code> option, we specify the path to the password wordlist. Here we are using the <code>rockyou.txt</code> wordlist, which is a well-known password list that comes pre-installed on Kali Linux.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-misc-part-one/6.png" alt="Step 6" loading="lazy"></figure>
+<h3>Viewing the Cracked Password</h3>
+<p>After the tool finishes attempting to crack the hash, we run the following command to display the recovered password:</p>
+<pre><code class="language-bash">john hash --show
+</code></pre>
+<p>The output reveals that the root password is: <code>123</code></p>
+<h2>Gaining Root Access</h2>
+<p>Now we switch to the root user using the <code>su</code> command:</p>
+<pre><code class="language-bash">su root
+</code></pre>
+<p>After executing this command, the system prompts us for the password. We enter the cracked password (<code>123</code>), and we are granted root access.</p>
+<h2>Result</h2>
+<p>With this, we have successfully obtained the highest privilege level on the system. The entire attack was possible because of a single misconfiguration: the <code>/etc/shadow</code> file had improper permissions that allowed a low-privileged user to read it. From there, we extracted the root password hash, cracked it using John the Ripper with a common wordlist, and used the recovered password to switch to the root account. This demonstrates why proper file permissions are critical for system security.</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-misc-part-one/7.png" alt="Step 7" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>Privilege Esclation (misconfiguration)</p>
+<p>رفع صلاحيتك على النظام عن طريق ملف shadow</p>
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح اشرح لكم تكنيك من تكنيكات رفع الصلاحية على نظام اللينكس وفي هذا التكنيك راح يعتمد على misconfiguration اللي يسببه مدير السيرفر بحيث انه يلعب في صلاحية ملف حساس ويقدر اي احد يقرأ ذا الملف</p>
+<p>خلونا نفهم ايش هو ال misconfiguration :هو الفشل في تنفيذ جميع ضوابط الأمان لخادم أو تطبيق ويب ، أو تنفيذ ضوابط الأمان ، ولكن القيام بذلك مع وجود أخطاء</p>
+<p>الشرح:</p>
+<p>كالعادة انا داخل بيوزر test ونبي نوصل الى صلاحية root</p>
+<p>اللحين راح نستخدم اداة linpease هذا الاداة تبحث لك عن اشياء ممكن انه عن طريقها ترفع صلاحيتك</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-misc-part-one/1.jpeg" alt="Step 1" loading="lazy"></figure>
+
+<p>هذا رابط الاداة للي وده ينزلها:</p>
+<p>linpease</p>
+<p>نحن طبعا راح ننزلها في مسار tmp/</p>
+<p>طيب ايش امر التنزيل هذا هو:</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-misc-part-one/2.png" alt="Step 2" loading="lazy"></figure>
+
+<p>wget https://raw.githubusercontent.com/carlospolop/PEASS-ng/master/linPEAS/linpeas.sh</p>
+<p>بعد كذا راح نعطي الملف صلاحيه وبعدها نشغله امر اعطاء الصلاحية والتشغيل هو :</p>
+<p>chmod 777 linpease.sh</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-misc-part-one/3.png" alt="Step 3" loading="lazy"></figure>
+
+<p>linpease.sh/.</p>
+<p>طبعا بعد مانقرا النتايج نلاحظ انه نقدر نقرا ملف shadow</p>
+<p>طبعا ملف الشادو يعتبر حساس لانه يحتوي على الباسوردات الخاصة باليوزرات بس انها مشفرة</p>
+<p>اللي يهمنا باسورد الرووت لانه اعلى صلاحية على النظام زي ما انتوا عارفين</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-misc-part-one/4.png" alt="Step 4" loading="lazy"></figure>
+
+<p>طيب راح ننشئ ملف ونحط فيه السطر كامل انا سويت ملف اسمه hash</p>
+<p>بعد كذا راح نسوي كراك للهاش عن طريق اداة john واتوقع الاغلب منكم يعرفها او سمع عنها</p>
+<p>طيب ايش الامر اللي راح نكتبه ؟</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-misc-part-one/5.png" alt="Step 5" loading="lazy"></figure>
+
+<p>هذا هو الأمر اللي راح نكتبه</p>
+<p>john hash --wordlist=/usr/share/wordlists/rockyou.txt</p>
+<p>طبعا في اوبشن ال wordlist راح تحدد مسار لستة الباسوردات اللي انشئتها طبعا انا حاط مسار لستة موجودة بالكالي</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-misc-part-one/6.png" alt="Step 6" loading="lazy"></figure>
+
+<p>بعد ماتنتهي الاداة من محاولة كسر الهاش راح ننفذ هذا الأمر عشان يعرض لنا الباسورد اللي تم كسره</p>
+<p>john hash --show</p>
+<p>هذا هو الباسورد الخاص بيوزر root اللي هو : 123</p>
+<p>بعد كذا راح ننفذ هذا الامر عشان ندخل على يوزر root</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-misc-part-one/7.png" alt="Step 7" loading="lazy"></figure>
+
+<p>su root</p>
+<p>بعد تنفيذ هذا الامر راح يطلب الباس راح تعطيه الباس اللي اللي تم كسره وبكذا نكون اعلى صلاحيه على النظام</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

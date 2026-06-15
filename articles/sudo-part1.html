@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Privilege Escalation - Sudo Part 1 | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">linux-privesc</a><span class="sep">/</span><span>Privilege Escalation - Sudo Part 1</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">linux-privesc</span>
+<span class="post-date">2023-03-15</span>
+</div>
+<h1 class="post-title">Privilege Escalation - Sudo Part 1</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, I will explain one of the techniques for privilege escalation on Linux systems. This technique relies on Sudo, so if you do not have a background on the sudoers file or how it works, I recommend reviewing that topic before continuing with this article.</p>
+<h2>Explanation</h2>
+<h3>Initial Access as a Low-Privileged User</h3>
+<p>To start, we are logged into the system as a low-privileged user called <code>test</code>. Our goal is to escalate our privileges so that we can execute commands as the <code>root</code> user, which is the highest privilege level on a Linux system.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-sudo/1.jpeg" alt="Step 1" loading="lazy"></figure>
+<h3>Checking Sudo Permissions</h3>
+<p>Since this technique depends on Sudo, the first step is to check what sudo permissions are available to our current user. We do this by running:</p>
+<pre><code class="language-bash">sudo -l
+</code></pre>
+<p>After executing this command, we observe that our user has permission to execute a file called <code>logic.py</code> with root privileges. This is a significant finding because it means the system administrator has configured sudoers to allow our low-privileged user to run this specific Python script as root.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-sudo/2.png" alt="Step 2" loading="lazy"></figure>
+<h3>Navigating to the File Path</h3>
+<p>Now we need to go to the path where <code>logic.py</code> is expected to exist and check whether we have write permissions on the file, or whether the file even exists at all. The path is:</p>
+<pre><code>/home/test/
+</code></pre>
+<p>After navigating to this directory, we notice that the <code>logic.py</code> file does not exist yet. This is actually good news for us -- since the sudoers entry references a file that does not exist in a directory we control, we can simply create it ourselves.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-sudo/3.png" alt="Step 3" loading="lazy"></figure>
+<h3>Creating the Exploit File</h3>
+<p>We create the file using the following command:</p>
+<pre><code class="language-bash">touch logic.py
+</code></pre>
+<h3>Writing the Payload</h3>
+<p>Now that the file has been created, we need to edit it and write a simple Python script that will spawn a shell for us. The code uses the <code>system</code> function from the <code>os</code> module:</p>
+<pre><code class="language-python">import os
+os.system(&quot;/bin/bash&quot;)
+</code></pre>
+<p>What this simple code does is launch the <code>/bin/bash</code> shell. The key insight is that since this script will be executed with root privileges (via sudo), the bash shell it spawns will also run with root privileges, effectively giving us a root session.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-sudo/4.png" alt="Step 4" loading="lazy"></figure>
+<h3>Executing the Script with Sudo</h3>
+<p>The final step is to run the script with root privileges using sudo. The full command is:</p>
+<pre><code class="language-bash">sudo /usr/bin/python3 /home/test/logic.py
+</code></pre>
+<p>This tells the system to use sudo to run the Python 3 interpreter at <code>/usr/bin/python3</code>, which in turn executes our <code>logic.py</code> script. Because sudo grants root privileges for this execution, the bash shell spawned by our script runs as root.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-sudo/5.png" alt="Step 5" loading="lazy"></figure>
+<h3>Result</h3>
+<p>After executing the command, we successfully obtain the highest privilege on the system -- root access. We now have full control over the machine.</p>
+<h2>Summary</h2>
+<p>This technique works because the sudoers configuration allowed our low-privileged user to run a specific Python script as root, but the script did not exist yet and we had write access to the directory where it was expected. By creating the script ourselves and placing a shell-spawning payload inside it, we were able to leverage the sudo permission to escalate to root. This highlights the importance of carefully auditing sudoers entries and ensuring that referenced files exist and have restrictive permissions.</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-sudo/6.png" alt="Step 6" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>Privilege Esclation (Sudo) Part 1</p>
+<p>رفع صلاحيتك على النظام بتكنيك SUDO</p>
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح اشرح لكم تكنيك من تكنيكات رفع الصلاحية على نظام اللينكس وفي هذا التكنيك راح نعتمد على Sudo ف إذا ماعندك خلفية عن ملف sudoers او كيفية طريقة عمله تقدرتتابع هذي المقالة</p>
+<p>الشرح:</p>
+<p>ف البداية انا داخل بيوز محدود الصلاحية على النظام واسم اليوز test طبعا الهدف اللي ودنا نوصله انه نقدر ننفذ اوامر بيوزر root اللي هو اعلى صلاحية على النظام بالنسبة للينكس</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-sudo/1.jpeg" alt="Step 1" loading="lazy"></figure>
+
+<p>بما انه هذا التكينيك يعتمد على sudo ف راح انفذ امر sudo -l بحيث نشوف اذا عندي صلاحية انفذ ملف بصلاحية root او لا</p>
+<p>نلاحظ انه عندي صلاحية انفذ ملف logic.py بصلاحية root</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-sudo/2.png" alt="Step 2" loading="lazy"></figure>
+
+<p>تمام تمام اللحين راح نروح على مسار ملف logic.py عشان نشوف اذا عندنا صلاحية نكتب على الملف او اذا مو فيه الملف لا بأس انك تنشئه</p>
+<p>المسار:</p>
+<p>home/test/</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-sudo/3.png" alt="Step 3" loading="lazy"></figure>
+
+<p>نلاحظ انه ملف logic.py مو موجود ف لا بأس اذا ننشئة عن طريق هذا الامر:</p>
+<p>touch logic.py</p>
+<p>بعد ما تم إنشاء الملف راح نعدل عليه ونكتب كود بسيط بدالة system الكود:</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-sudo/4.png" alt="Step 4" loading="lazy"></figure>
+
+<p>import os</p>
+<p>os.system("/bin/bash")</p>
+<p>اللي راح يسويه هذا الكود البسيط انه يشغل لنا ملف bash وبما انه الملف راح نشغله بصلاحية root ف راح ترجع لنا جلسة بصلاحية root</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-sudo/5.png" alt="Step 5" loading="lazy"></figure>
+
+<p>نجي للخطوة الاخيرة انه راح نشغل الملف بصلاحية root عن طريق sudo</p>
+<p>امر التشغيل:</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-sudo/6.png" alt="Step 6" loading="lazy"></figure>
+
+<p>sudo /usr/bin/python3 /home/test/logic.py</p>
+<p>وبكذا حصلنا على اعلى صلاحية في النظام root</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

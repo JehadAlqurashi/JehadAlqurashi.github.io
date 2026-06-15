@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Relaying - SMB Relay and Printer Bug | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">network-attacks</a><span class="sep">/</span><span>Relaying - SMB Relay and Printer Bug</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">network-attacks</span>
+<span class="post-date">2023-12-15</span>
+</div>
+<h1 class="post-title">Relaying - SMB Relay and Printer Bug</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>Before reading this article, you should review the two previous articles: SMB Relay and LLMNR Poisoning.</p>
+<h3>What is SMB Relay + Printer Bug?</h3>
+<p>This article is similar to the previous one, but in this case we do not need any user interaction at all. We will add the Printer Bug tool to our attack chain. The idea behind this tool is simple: it targets machines that have the Spooler service running, forcing that domain-joined machine to authenticate to an IP address that we specify. We will of course specify our Kali machine's IP address so that we capture the machine's NTLMv2 hash using Responder, then relay it to ntlmrelayx. The ntlmrelayx tool will then attempt to log in to all machines in the domain via SMB using the captured NTLMv2 hash. However, the target machine that ntlmrelayx attempts to log in to must have SMB2 Signing set to not required, and the owner of the NTLMv2 hash must be a member of the Local Administrators group on at least one of the machines we are attempting to log in to.</p>
+
+<figure class="article-img"><img src="../assets/images/smb-relay-printer-bug/1.png" alt="Step 1" loading="lazy"></figure>
+<h3>Requirements Summary</h3>
+<ol>
+<li>You must have a user account on the domain in order to execute the Printer Bug.</li>
+<li>You must know which machines in the domain do not require SMB2 Signing.</li>
+<li>The targeted machine must be in the Local Administrators group on at least one of the machines you will attempt to log in to, in order to successfully authenticate.</li>
+</ol>
+<h2>Walkthrough</h2>
+<h3>Step 1: Confirm Domain User Access</h3>
+<p>First, we have a limited-privilege user account on the domain.</p>
+
+<figure class="article-img"><img src="../assets/images/smb-relay-printer-bug/2.png" alt="Step 2" loading="lazy"></figure>
+<h3>Step 2: Identify Machines Without SMB2 Signing</h3>
+<p>We need to determine which machines do not require SMB2 Signing using CrackMapExec.</p>
+<p>The results show that the machine with the IP ending in 13 does not require SMB2 Signing. This IP is saved to a file called <code>smb.txt</code>.</p>
+
+<figure class="article-img"><img src="../assets/images/smb-relay-printer-bug/3.png" alt="Step 3" loading="lazy"></figure>
+<h3>Step 3: Start Responder and ntlmrelayx</h3>
+<p>Now we will start both Responder and ntlmrelayx using the following commands:</p>
+<pre><code class="language-bash">python3 /usr/share/doc/python3-impacket/examples/ntlmrelayx.py -tf smb.txt -c &quot;powershell.exe whoami;hostname&quot;
+</code></pre>
+<pre><code class="language-bash">sudo python2 Responder.py -I eth0 -wv
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/smb-relay-printer-bug/4.png" alt="Step 4" loading="lazy"></figure>
+<h3>Step 4: Execute the Printer Bug</h3>
+<p>Now we move to the Printer Bug tool. We will target the Domain Controller, whose IP address is 192.168.100.112. The goal is to capture the Domain Controller's NTLMv2 hash and relay it to the other machines to attempt SMB login.</p>
+<h3>Step 5: Capture and Relay</h3>
+<p>After executing the Printer Bug script, the NTLMv2 hash of the Domain Controller is captured, and it is successfully relayed to the machine ending in 13. The <code>whoami</code> command is executed on the target, confirming successful authentication and command execution via SMB relay.</p>
+<p>This demonstrates that by combining the Printer Bug with SMB Relay, an attacker can achieve remote code execution on domain machines without any user interaction, as long as the target lacks SMB2 Signing enforcement and the relayed account has local admin rights on the destination host.</p>
+<figure class="article-img"><img src="../assets/images/smb-relay-printer-bug/5.png" alt="Step 5" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>قبل البدأ في قراءة هذي المقالة يجب الاطلاع على المقالتين السابقة SMB Relay ,LLMNR Poisoning</p>
+<p>ماهو SMB Relay + Printer Bug :</p>
+<p>هذي المقالة مشابهه للمقالة السابقة لكن في هذي المقالة لا نحتاج الى تفاعل المستخدم بتاتا, بحيث راح نضيف معنا اداة Printer Bug وفكرة هذي الاداة ببساطة انها تستهدف الاجهزة اللي تشتغل عليها خدمة Spooler بحيث تجبر هذا الجهاز اللذي يتواجد على الـDomain انه يسوي Authentication على الايبي اللي تحدده وطبعا نحن راح نحدد الايبي الخاص في الكالي بحيث نتلقط الـNTLMv2 الخاص بالجهاز عن طريق اداة Responder ونقوم بتمريرة الى اداة Ntlmrelayx و سوف تقوم اداة Ntlmrealyx بتجربة تسجيل الدخول على جميع الاجهزة في الـDomain عن طريق الـSMB بأستخدام NTLMv2 الخاص بالجهاز المستهدف ولكن الجهاز اللي سوف تقوم بمحاولة تسجيل الدخول عليه يجب ان يكون الـ SMB2 SIGNING ليس متطلب ويجب ان يكون صاحب الـNTLMv2 ضمن قروب الـLocal Administrator في احد الاجهزة اللي راح نحاول تسجيل الدخول عليه</p>
+<p>المتطلبات بإختصار:</p>
+<p>1- يجب ان يكون لديك مستخدم على الـDomain لتنفيذ Printer Bug</p>
+<figure class="article-img"><img src="../assets/images/smb-relay-printer-bug/1.png" alt="Step 1" loading="lazy"></figure>
+
+<p>2- يجب معرفة الاجهزة الموجودة في الدومين اللتي ليس متطلب بالنسبة لها الـSMB2 SIGNING</p>
+<p>3- يجب ان يكون الجهاز المستهدف ضمن قروب الـLocal Administrators في احد الاجهزة اللي راح نحاول التسجيل الدخول عليها حتى نتمكن من تسجيل الدخول بنجاح</p>
+<p>الشرح:</p>
+<figure class="article-img"><img src="../assets/images/smb-relay-printer-bug/2.png" alt="Step 2" loading="lazy"></figure>
+
+<p>اولا انا عندي مستخدم محدود الصلاحية على الـDomain</p>
+<p>ثانيا يجب علينا معرفة ماهي الاجهزة اللتي ليس لديها متطلب SMB2 SIGNING بأستخدام اداة CrackMapExec</p>
+<p>نلاحظ انه الايبي اللي نهايته 13 الـSMB2 SIGNING ليس متطلب بالنسبة له وتم حفظ الايبي في ملف اسمه smb.txt</p>
+<figure class="article-img"><img src="../assets/images/smb-relay-printer-bug/3.png" alt="Step 3" loading="lazy"></figure>
+
+<p>الان راح نشغل اداة Responder و Ntlmrelayx عن طريق هذي الامرين:</p>
+<p>python3 /usr/share/doc/python3-impacket/examples/ntlmrelayx.py -tf smb.txt -c "powershell.exe whoami;hostname"</p>
+<figure class="article-img"><img src="../assets/images/smb-relay-printer-bug/4.png" alt="Step 4" loading="lazy"></figure>
+
+<p>sudo python2 Responder.py -I eth0 -wv</p>
+<p>الان نجي الى اداة Printer Bug راح استهدف الـDomain Controller والايبي الخاص فيه هو 192.168.100.112 بحيث راح نتلقط الـNTLMv2 الخاص فيه ونمرره لبقية الاجهزة لمحاولة تسجيل الدخول عن طريق الـSMB</p>
+<p>بعد تنفيذ السكربت تم التقاط الـNTLMv2 الخاص في الـDomain Controller وتم تسجيل الدخول بنجاح على الايبي المنتهي برقم 13 وتنفيذ امر whoami</p>
+<figure class="article-img"><img src="../assets/images/smb-relay-printer-bug/5.png" alt="Step 5" loading="lazy"></figure>
+
+<p>وصلنا لنهاية المقالة</p>
+<p>شاكر لكم.</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

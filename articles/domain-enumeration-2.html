@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Attacking Active Directory - Domain Enumeration 2 | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">active-directory</a><span class="sep">/</span><span>Attacking Active Directory - Domain Enumeration 2</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">active-directory</span>
+<span class="post-date">2023-08-28</span>
+</div>
+<h1 class="post-title">Attacking Active Directory - Domain Enumeration 2</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we continue explaining PowerView commands for Active Directory domain enumeration. I know this topic can feel tedious, but it is essential to cover these commands so that everyone is familiar with the tools available during an engagement.</p>
+<h2>Prerequisites</h2>
+<p>In the previous article, we learned how to load scripts into memory and how to bypass Windows Defender and AMSI. Please follow the previous article first so you have the full context before proceeding.</p>
+<h2>PowerView Commands</h2>
+<h3>Get-NetLocalGroup -- Enumerate Local Groups on a Machine</h3>
+<p>This command displays the local groups on a specific machine:</p>
+<pre><code class="language-powershell">Get-NetLocalGroup -ComputerName dcorp-dc
+</code></pre>
+<p>After running this command, it extracts the local groups and the users within each group. If you look at the <strong>IsGroup</strong> column, a value of <code>True</code> means the entry is a group, while a value of <code>False</code> means it is an individual user.</p>
+
+<figure class="article-img"><img src="../assets/images/domain-enum-two/2.png" alt="Step 1" loading="lazy"></figure>
+<h3>Invoke-ShareFinder -- Discover Shared Folders</h3>
+<p>This command enumerates shared folders across all machines in the domain:</p>
+<pre><code class="language-powershell">Invoke-ShareFinder -Verbose
+</code></pre>
+<p>This is useful for discovering potentially sensitive files or misconfigured shares that may contain credentials, configuration files, or other valuable data.</p>
+
+<figure class="article-img"><img src="../assets/images/domain-enum-two/3.png" alt="Step 2" loading="lazy"></figure>
+<h3>Get-NetGPO -- List Group Policy Objects</h3>
+<p>This command displays the Group Policy Objects (GPOs) present in the domain:</p>
+<pre><code class="language-powershell">Get-NetGPO
+</code></pre>
+<p>GPOs define policies and configurations that are applied across the domain, and reviewing them can reveal security misconfigurations or interesting settings.</p>
+
+<figure class="article-img"><img src="../assets/images/domain-enum-two/4.png" alt="Step 3" loading="lazy"></figure>
+<h3>Invoke-ACLScanner -- Identify Exploitable Access Control Lists</h3>
+<p>This command checks whether any group has elevated permissions over a specific user or group (Access Control List analysis):</p>
+<pre><code class="language-powershell">Invoke-ACLScanner -ResolveGUIDs
+</code></pre>
+<p>Before executing this command, it is important to understand the types of permissions that matter to us as attackers:</p>
+<ol>
+<li>
+<p><strong>GenericAll</strong> -- This permission gives you full control over the object, including the ability to add it to a group, change its password, and more.</p>
+</li>
+<li>
+<p><strong>GenericWrite</strong> -- This permission allows you to modify the properties of the object. For example, you could assign a malicious script that runs automatically when the user logs in.</p>
+</li>
+<li>
+<p><strong>WriteOwner</strong> -- This permission allows you to change the owner of the object to a user that you control.</p>
+</li>
+<li>
+<p><strong>WriteDACL</strong> -- This permission allows you to add high-level permissions to a specific user, effectively giving them control over the object.</p>
+</li>
+<li>
+<p><strong>ForceChangePassword</strong> -- This permission allows you to change the password of the target object.</p>
+</li>
+</ol>
+<p><strong>Important note:</strong> When I say "object," it can refer to either a group or an individual user.</p>
+<p>After executing the command, we can observe in the <strong>IdentityReferenceName</strong> column that users in the <strong>RDPUsers</strong> group have <strong>GenericAll</strong> permission over the user <code>Control401User</code>. As we explained above, GenericAll means full control -- we could, for example, change this user's password or add them to another group.</p>
+
+<figure class="article-img"><img src="../assets/images/domain-enum-two/5.png" alt="Step 4" loading="lazy"></figure>
+<h3>Get-NetDomainTrust -- Map Trust Relationships</h3>
+<p>This command displays the trust relationships between domains:</p>
+<pre><code class="language-powershell">Get-NetDomainTrust
+</code></pre>
+<p>After running this command, we observe the following:</p>
+<ul>
+<li>The domain <code>dollarcorp.moneycorp.local</code> (where we are currently located) has a <strong>Bidirectional (Two-Way) Trust</strong> with <code>moneycorp.local</code>.</li>
+<li>The domain <code>dollarcorp.moneycorp.local</code> also has a <strong>Bidirectional (Two-Way) Trust</strong> with <code>eurocorp</code>, but this trust is marked as <strong>External</strong>, meaning the two domains are in different forests.</li>
+</ul>
+<p><strong>Why is trust relationship information useful?</strong></p>
+<p>If we manage to gain high-level privileges on the <code>dollarcorp.moneycorp.local</code> domain, we can leverage the trust relationship to move into the <code>moneycorp.local</code> domain and compromise it as well. This is an advanced topic that will be covered in future articles.</p>
+<p><strong>Note:</strong> I explained the different types of trust relationships in detail in the first article of this series.</p>
+
+<figure class="article-img"><img src="../assets/images/domain-enum-two/6.png" alt="Step 5" loading="lazy"></figure>
+<h3>Get-NetForest -- Gather Forest Information</h3>
+<p>This command displays information about the forest we are operating in, including how many domains exist, the forest name, and the Domain Controllers:</p>
+<pre><code class="language-powershell">Get-NetForest
+</code></pre>
+<p>From the output, we can see that:</p>
+<ul>
+<li>The <strong>forest name</strong> is <code>moneycorp.local</code></li>
+<li>The <strong>domains</strong> in this forest are:</li>
+<li><code>moneycorp.local</code></li>
+<li><code>dollarcorp.moneycorp.local</code></li>
+<li><code>us.dollarcorp.moneycorp.local</code></li>
+<li>The <strong>Domain Controllers</strong> are:</li>
+<li><code>mcorp-dc.moneycorp.local</code></li>
+<li><code>dcorp-dc.dollarcorp.moneycorp.local</code></li>
+<li><code>us-dc.us.dollarcorp.moneycorp.local</code></li>
+</ul>
+<p>This gives us a comprehensive view of the entire Active Directory forest structure, which is critical for planning lateral movement and cross-domain attacks.</p>
+<figure class="article-img"><img src="../assets/images/domain-enum-two/7.png" alt="Step 6" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة: في هذي المقالة راح نكمل شرح اوامر اداة PowerView انا عارف انه الوضع ممل بس ضروري اكملها عشان الكل يكون على اطلاع بالاوامر</p>
+<p>الشرح: في المقالة السابقة تعلمنا كيف نسوي Load للسكربت في الميموري وتخطينا ال Windows Defender و AMSI ف ياليت تتابع المقالة السابقة عشان تكون بالصورة</p>
+<p>الامر هذا يعرض لنا القروبات المحلية الخاصة بجهاز معين</p>
+<p>Get-NetLocalGroup -ComputerName dcorp-dc</p>
+<p>نلاحظ انه استخرج القروبات المحلية والمستخدمين اللي داخل القروب لو نشوف خانة IsGroup اذا كانت قيمتها True هذا يعني انه قروب اذا كانت False هذا يعني انه مستخدم</p>
+<p>هذا الامر يعرض لنا ال Share Folder لكل الاجهزة</p>
+<p>Invoke-ShareFinder –Verbose</p>
+<p>هذا الامر يعرض لنا Group Policy Object الموحودة في الدومين</p>
+<p>Get-NetGPO</p>
+<p>هذا الامر يعرض لنا اذا كان في قروب عنده صلاحية على يوزر معين او قروب معين (Access Control List)</p>
+<p>Invoke-ACLScanner -ResolveGUIDs</p>
+<p>طبعا قبل لا ننفذ هذا الامر لازم اذكر لكم انواع الصلاحيات اللي تهمنا كمخترقين:</p>
+<figure class="article-img"><img src="../assets/images/domain-enum-two/2.png" alt="Step 1" loading="lazy"></figure>
+
+<p>1- GenericAll الصلاحية هذي تمكنك من التحكم في الكائن سواء اضافته الى قروب معين او تغيير كلمة المرور الخاصة فيه الخ</p>
+<p>2- GenericWrite الصلاحية هذي تمكنك من التغيير في خصائص الكائن مثال عليها نحدد للكائن سكربت معين يشتغل تلقائيا عند تسجيل الدخول ومن الممكن هذا الملف يكون ملف خبيث</p>
+<p>3- WriteOwner الصلاحية هذي تمكنك من تغيير المالك للكائن الى مستخدم يملكه المخترق</p>
+<p>4- WriteDACL الصلاحية هذي تمكنك من اضافة صلاحية عالية لمستخدم محدد تمكنه من التحكم بالكائن</p>
+<figure class="article-img"><img src="../assets/images/domain-enum-two/3.png" alt="Step 2" loading="lazy"></figure>
+
+<p>5- ForceChangePassword الصلاحية هذي تمكنك من تغيير كلمة المرور الخاصة بالكائن</p>
+<p>ملاحظة مهمة جدا: الكائن اقصد فيه ممكن انه يكون قروب او مستخدم معين</p>
+<p>بعد تنفيذ الامر نلاحظ مع بعض في خانة ال IdentityReferenceName انه المستخدمين اللي في قروب RDPUsers عندهم صلاحية GenericAll على المستخدم Control401User ونحن شرحنا قبل شوي ايش تعني صلاحية GenericAll</p>
+<p>هذا الامر يعرض لنا الوثوقية بين كل نطاق</p>
+<p>Get-NetDomainTrust</p>
+<figure class="article-img"><img src="../assets/images/domain-enum-two/4.png" alt="Step 3" loading="lazy"></figure>
+
+<p>نلاحظ مع بعض انه النطاق dollarcorp.moneycorp.local اللي نحن موجودين علية عنده وثوقية من نوع Bidirectional(Two Way Trust) مع moneycorp.local</p>
+<p>وكمان نلاحظ انه النطاق dollarcorp.moneycorp.local عنده وثوقية من نوع Bidirectional(Two Way Trust) مع eurocorp بس انها External هذا يعني انه النطاقين موجودين في Forest مختلفه</p>
+<p>طيب ايش راح نستفيد من معلومة الوثوقية؟</p>
+<p>نستفيد منها اذا وصلنا الى النطاق dollarcorp.moneycorp.local بصلاحية عالية كيف راح نتمكن من الوصول الى النطاق الاخر اللي هو moneycorp.local ونخترقة طبعا هذا الشي متقدم وراح اشرحهه في المقالات القادمة</p>
+<p>ملاحظة مهمه: شرحت انواع الوثوقية بالتفصيل في المقالة الاولى</p>
+<figure class="article-img"><img src="../assets/images/domain-enum-two/5.png" alt="Step 4" loading="lazy"></figure>
+
+<p>هذا الامر يعرض لنا معلومات عن ال Forest اللي اللي متواجدين فيها و تتكون من كم نطاق وايش اسم ال Forest و ال Domain Controllers الموجودين</p>
+<p>Get-NetForest</p>
+<p>نلاحظ انه اسم ال Forest هو Moneycorp.local و النطاقات الموجودة فيه هي:</p>
+<p>1- moneycorp.local</p>
+<p>2- dollarcorp.moneycorp.local</p>
+<figure class="article-img"><img src="../assets/images/domain-enum-two/6.png" alt="Step 5" loading="lazy"></figure>
+
+<p>3- us.dollarcorp.moneycorp.local</p>
+<p>و ال Domain Controllers هم:</p>
+<p>1- mcorp-dc.moneycorp.local</p>
+<p>2- dcorp-dc.dollarcorp.moneycorp.local</p>
+<figure class="article-img"><img src="../assets/images/domain-enum-two/7.png" alt="Step 6" loading="lazy"></figure>
+
+<p>3- us-dc.us.dollarcorp.moneycorp.local</p>
+<p>وبكذا وصلنا الى نهاية المقالة</p>
+<p>اتمنى انها نالت على اعجابكم</p>
+<p>شاكر لكم.</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

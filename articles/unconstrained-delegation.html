@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Domain Privilege Escalation - Unconstrained Delegation | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">active-directory</a><span class="sep">/</span><span>Domain Privilege Escalation - Unconstrained Delegation</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">active-directory</span>
+<span class="post-date">2023-11-05</span>
+</div>
+<h1 class="post-title">Domain Privilege Escalation - Unconstrained Delegation</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will explain the fifth Domain Privilege Escalation technique: Unconstrained Delegation.</p>
+<p>Before we start applying the technique, let us understand what Unconstrained Delegation is.</p>
+<h2>What is Unconstrained Delegation?</h2>
+<p>Some machines in an Active Directory environment have a feature called Unconstrained Delegation enabled. The idea behind this feature is that when any user logs into that machine -- whether they hold Domain Admin privileges or otherwise -- and attempts to access a service hosted on another machine via Kerberos authentication, their TGT (Ticket Granting Ticket) gets stored in the machine's memory.</p>
+<p>The reason the TGT is saved in memory is so that when a subsequent service request is made, there is no need to re-authenticate and request a new TGT through Kerberos, because the ticket is already cached in memory.</p>
+<p>So if an attacker compromises a machine that has the Unconstrained Delegation feature enabled, they can potentially extract the TGTs stored in memory and reuse them to gain access to the Domain Controller. Of course, this all depends on whose TGT is cached in memory -- whether it belongs to a user in the Domain Admins group or not, or whether there is even a TGT present in memory at all.</p>
+<h2>Step-by-Step Walkthrough</h2>
+<h3>Step 1: Load the PowerView Module</h3>
+<p>First, we load the PowerView tool into our PowerShell session using the following command:</p>
+<pre><code class="language-powershell">Import-Module .\PowerView.ps1
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/unconstrained-delegation/2.jpeg" alt="Step 1" loading="lazy"></figure>
+<h3>Step 2: Identify Machines with Unconstrained Delegation</h3>
+<p>Using this command, we enumerate which machines in the domain have Unconstrained Delegation enabled:</p>
+<pre><code class="language-powershell">Get-NetComputer -Unconstrained
+</code></pre>
+<p>We can see that two machines have Unconstrained Delegation enabled: <code>dcorp-dc</code> and <code>dcorp-appsrv</code>.</p>
+<p>The first machine is the Domain Controller itself -- the Domain Controller will always have Unconstrained Delegation enabled by default, so it is not our focus here.</p>
+<p>The machine we are interested in is <code>dcorp-appsrv</code>. To apply this technique, you must have already compromised this machine and obtained Local Administrator privileges on it.</p>
+
+<figure class="article-img"><img src="../assets/images/unconstrained-delegation/3.jpeg" alt="Step 2" loading="lazy"></figure>
+<h3>Why Do We Need Local Administrator Privileges?</h3>
+<p>Because we are going to extract TGTs using the Mimikatz tool, which requires Administrator-level access on the machine to interact with the LSASS process and read ticket data from memory.</p>
+<p>In this scenario, we have the user <code>appadmin</code> who holds Local Administrator privileges on the <code>dcorp-appsrv</code> machine.</p>
+
+<figure class="article-img"><img src="../assets/images/unconstrained-delegation/4.jpeg" alt="Step 3" loading="lazy"></figure>
+<h3>Step 3: Access the Target Machine and Transfer Mimikatz</h3>
+<p>Now that we have accessed the machine with Unconstrained Delegation enabled, we transfer the Mimikatz tool to it. We create a PowerShell remote session and copy the binary over:</p>
+<pre><code class="language-powershell">$sess = New-PSSession -ComputerName dcorp-appsrv
+
+Copy-Item -Path C:\AD\Tools\mimikatz_trunk\x64\mimikatz.exe -Destination C:\Users\Administrator\Desktop\ -ToSession $sess
+</code></pre>
+<h3>Step 4: View All Cached Tickets in Memory</h3>
+<p>Now we list all the Kerberos tickets currently stored in memory using Mimikatz:</p>
+<pre><code class="language-powershell">.\mimikatz.exe &quot;sekurlsa::tickets&quot; &quot;exit&quot;
+</code></pre>
+<p>We can observe that the TGT belonging to the Administrator account is present in memory.</p>
+
+<figure class="article-img"><img src="../assets/images/unconstrained-delegation/5.jpeg" alt="Step 4" loading="lazy"></figure>
+<h3>Step 5: Export the Cached Tickets</h3>
+<p>Now all we need to do is export the tickets from memory to disk using the following command:</p>
+<pre><code class="language-powershell">.\mimikatz.exe &quot;sekurlsa::tickets /export&quot; &quot;exit&quot;
+</code></pre>
+<p>This will save the ticket as a <code>.kirbi</code> file that we can reuse.</p>
+
+<figure class="article-img"><img src="../assets/images/unconstrained-delegation/6.jpeg" alt="Step 5" loading="lazy"></figure>
+<h3>Step 6: Inject the Exported Ticket into Our Session</h3>
+<p>Now we inject the exported TGT back into our current session using Mimikatz's Pass-the-Ticket (PTT) functionality:</p>
+<pre><code class="language-powershell">.\mimikatz.exe &quot;kerberos::ptt [0;8d2043]-2-0-60a10000-Administrator@krbtgt-DOLLARCORP.MONEYCORP.LOCAL.kirbi&quot; &quot;exit&quot;
+</code></pre>
+<h2>Post-Exploitation</h2>
+<p>With the Administrator's TGT now injected into our session, we have multiple options available to us:</p>
+<ul>
+<li><strong>Browse Domain Controller files</strong> -- navigate the file system of the DC directly</li>
+<li><strong>Execute commands on the Domain Controller</strong> -- run arbitrary commands remotely</li>
+<li><strong>Perform a DCSync attack</strong> -- extract the NTLM hash for the Administrator account (or any other account) from the domain, enabling full domain compromise</li>
+</ul>
+<figure class="article-img"><img src="../assets/images/unconstrained-delegation/7.jpeg" alt="Step 6" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح نشرح التكينك الخامس لي الـDomain Privilege Escalation وهو الـUnConstrained Delegation</p>
+<p>قبل نبدا في تطبيق التكنيك خلونا نعرف ايش هو تكنيك الـUnConstrained Delegation؟</p>
+<p>بعض الاجهزة تحتوي على Feature تسمى UnConstrained Delegation فكرة هذي الـFeature انه اي مستخدم يسجل دخول على الجهاز سواء كان عنده صلاحية Domain Admin او غيره وحاول انه يسوي Access لسيرفس موجودة في جهاز اخر عن طريق الـKerberos راح تنحفظ ال TGT الخاصة فيه في الميموري</p>
+<p>السبب في حفظ الـTGT في الميموري انه وقت يتم طلب خدمة اخرى مايحتاج انه نسوي مصادقة لي الـTGT عن طريق الـKerberos لانه تم حفظها في الميموري اساسا</p>
+<p>ف اذا المخترق وصل الى هذا الجهاز اللي يحتوي على Feature تسمى UnConstrained Delegation من الممكن يسحب الـTGT الموجودة في الميموري ويعيد استخدامها ويتمكن من الوصول الى Domian Controller طبعا كل هذا يعتمد على الـTGT الموجودة في الميموري هل تخص مستخدم موجود في قروب الـDomina Admins او لا او انه اساسا لا يوجد TGT في الميموري</p>
+<p>الشرح:</p>
+<p>اول شي راح نسوي Load لي اداة PowerView عن طريق هذا الامر:</p>
+<p>Import-Module .\PowerView.ps1</p>
+<figure class="article-img"><img src="../assets/images/unconstrained-delegation/2.jpeg" alt="Step 1" loading="lazy"></figure>
+
+<p>عن طريق هذا الامر راح نشوف ايش الاجهزة اللي تحتوي على UnConstrained Delegation :</p>
+<p>Get-NetComputer -Unconstrained</p>
+<p>نلاحظ مع بعض ان الجهازين اللي هم dcorp-dc و dcorp-appsrv عندهم UnConstrained Delegation</p>
+<p>طبعا اول جهاز هو الـDomain Controller ف راح دائما تلاقي عليه UnConstrained Delegation ف مايهمنا</p>
+<figure class="article-img"><img src="../assets/images/unconstrained-delegation/3.jpeg" alt="Step 2" loading="lazy"></figure>
+
+<p>اللي يهمنا الجهاز dcorp-appsrv طبعا عشان نطبق التكنيك لازم تكون مخترق هذا الجهاز وعندك صلاحية Local Administrator</p>
+<p>ليش نحتاج صلاحية Local Administrator؟</p>
+<p>عشان بنسحب الـTGT عن طريق اداة Mimikatz ف نحتاج لصلاحية Administrator على نفس الجهاز</p>
+<p>ف انا عندي المستخدم appadmin عنده صلاحية Local Administrator على جهاز dcorp-appsrv زي ماهو موضح في الصورة القادمة</p>
+<figure class="article-img"><img src="../assets/images/unconstrained-delegation/4.jpeg" alt="Step 3" loading="lazy"></figure>
+
+<p>الان دخلنا للجهاز اللي يحتوي على UnConstrained Delegation</p>
+<p>الان راح انقل اداة mimikatz عن طريق هذا الامر:</p>
+<p>$sess = New-PSSession -ComputerName dcorp-appsrv</p>
+<p>Copy-Item -Path C:\AD\Tools\mimikatz_trunk\x64\mimikatz.exe -Destination C:\Users\Administrator\Desktop\ -ToSession $sess</p>
+<figure class="article-img"><img src="../assets/images/unconstrained-delegation/5.jpeg" alt="Step 4" loading="lazy"></figure>
+
+<p>الان راح نطلع على جميع الـTickets الموجودة في الميموري عن طريق هذا الامر:</p>
+<p>.\mimikatz.exe "sekurlsa::tickets" "exit"</p>
+<p>نلاحظ انه الـTGT الخاصة في الـ Administrator موجودة في الميموري</p>
+<p>الان كل اللي علينا نسوي لها استخراج عن طريق هذا الامر:</p>
+<figure class="article-img"><img src="../assets/images/unconstrained-delegation/6.jpeg" alt="Step 5" loading="lazy"></figure>
+
+<p>.\mimikatz.exe "sekurlsa::tickets /export" "exit"</p>
+<p>الان راح نرجع نحقنها في نفس الـSession الخاصة فينا عن طريق هذا الامر :</p>
+<p>.\mimikatz.exe "kerberos::ptt [0;8d2043]-2-0-60a10000-Administrator@krbtgt-DOLLARCORP.MONEYCORP.LOCAL.kirbi" "exit"</p>
+<p>الان يمديك تتصفح ملفات Domin Controller او تنفذ اوامر عليه او ممكن تنفذ dcsync attack وتاخذ الـNTLM Hash حق الـ Administrator</p>
+<figure class="article-img"><img src="../assets/images/unconstrained-delegation/7.jpeg" alt="Step 6" loading="lazy"></figure>
+
+<p>وصلنا الى نهاية المقالة</p>
+<p>اتمنى انها نالت على اعجابكم</p>
+<p>شاكرلكم.</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Domain Privilege Escalation - LAPS | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">active-directory</a><span class="sep">/</span><span>Domain Privilege Escalation - LAPS</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">active-directory</span>
+<span class="post-date">2023-11-15</span>
+</div>
+<h1 class="post-title">Domain Privilege Escalation - LAPS</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>This article covers the seventh technique for Domain Privilege Escalation: exploiting LAPS (Local Administrator Password Solution).</p>
+<h2>What is LAPS?</h2>
+<p>LAPS is a Microsoft solution that manages the local administrator passwords on domain-joined computers. Each local administrator password is given an expiration date, and when that date passes, a new random password is automatically generated and assigned to the local administrator account.</p>
+<p>These passwords are stored in clear text inside an Active Directory attribute called <code>ms-mcs-admpwd</code> on the computer object that has LAPS enabled. However, not just anyone can read this attribute. Only users or groups that have been granted the <strong>Read Property</strong> permission on the specific computer object can view the stored password.</p>
+<p>In this article, we will walk through the process of identifying which computers have LAPS enabled, determining which users or groups have the Read Property permission to view the password, and then leveraging that access to retrieve the local administrator password and gain access to the target machine.</p>
+<h2>Walkthrough</h2>
+<h3>Step 1: Load PowerView</h3>
+<p>We begin by loading the PowerView module, which gives us powerful Active Directory enumeration capabilities:</p>
+<pre><code class="language-powershell">Import-Module .\PowerView.ps1
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/laps/2.jpeg" alt="Step 1" loading="lazy"></figure>
+<h3>Step 2: Identify Computers with LAPS Enabled</h3>
+<p>We use PowerView to search for any domain computer objects that have the LAPS-related ACL (<code>ms-Mcs-AdmPwd</code>), which indicates LAPS is configured on that machine:</p>
+<pre><code class="language-powershell">Find-InterestingDomainAcl -ResolveGUIDs | Where{$_.ObjectAceType -match &quot;ms-Mcs-AdmPwd&quot;}
+</code></pre>
+<p>From the output, we can see that the computer named <code>IT-APPSRV01</code>, located in the Organizational Unit called <code>APPServer</code>, has LAPS enabled. We also see that a group called <code>Local Admins</code> has been granted the <strong>Read Property</strong> permission on this computer object, meaning members of that group can read the stored local administrator password.</p>
+<h3>Step 3: Check Our Current Group Membership</h3>
+<p>Our current user account is <code>itemployee14</code>. This user is not a member of the <code>Local Admins</code> group, so we cannot directly read the LAPS password yet. We need to find a way to add ourselves to that group.</p>
+
+<figure class="article-img"><img src="../assets/images/laps/3.jpeg" alt="Step 2" loading="lazy"></figure>
+<h3>Step 4: Search for Useful ACLs</h3>
+<p>We search the domain for any ACL entries that might allow us to modify group membership:</p>
+<pre><code class="language-powershell">Find-InterestingDomainAcl -ResolveGUIDs
+</code></pre>
+<p>After reviewing the results, we find that the group <code>ITEmployeesUsers</code> (which our user <code>itemployee14</code> is a member of) has <strong>Write Property</strong> permission on the <code>Local Admins</code> group. This means we can modify the membership of the <code>Local Admins</code> group, including adding ourselves to it.</p>
+<h3>Step 5: Add Our User to the Local Admins Group</h3>
+<p>Since we have Write Property on the <code>Local Admins</code> group through our <code>ITEmployeesUsers</code> membership, we can add our user to it:</p>
+<pre><code class="language-powershell">Add-DomainGroupMember -Identity LocalAdmins -Members itemployee14
+</code></pre>
+<p>Now our user <code>itemployee14</code> is a member of the <code>Local Admins</code> group, which has Read Property permission on the LAPS-enabled computer <code>IT-APPSRV01</code>.</p>
+
+<figure class="article-img"><img src="../assets/images/laps/4.jpeg" alt="Step 3" loading="lazy"></figure>
+<h3>Step 6: Read the LAPS Password</h3>
+<p>After adding ourselves to the group, we need to open a new PowerShell session with Administrator privileges (to ensure the updated group membership token is loaded). Then we load PowerView again and query the target computer object to retrieve the stored LAPS password:</p>
+<pre><code class="language-powershell">Import-Module .\PowerView.ps1
+Get-NetComputer -Identity IT-APPSRV01
+</code></pre>
+<p>In the output, we can see the local administrator password stored in the <code>ms-mcs-admpwd</code> attribute. The password for the local Administrator account on <code>IT-APPSRV01</code> is: <code>O4+.5ZER2e2lj5</code></p>
+<h3>Step 7: Access the Target Machine</h3>
+<p>Now that we have the local administrator password, we can authenticate to <code>IT-APPSRV01</code> using the <code>Administrator</code> account with the recovered password <code>O4+.5ZER2e2lj5</code>. This can be done using tools such as PsExec, Enter-PSSession, or any other remote management tool that supports credential-based authentication:</p>
+<pre><code class="language-powershell">Enter-PSSession -ComputerName IT-APPSRV01 -Credential (Get-Credential)
+</code></pre>
+<p>When prompted, enter <code>Administrator</code> as the username and <code>O4+.5ZER2e2lj5</code> as the password. This gives us a fully interactive session on the target machine with local administrator privileges.</p>
+<figure class="article-img"><img src="../assets/images/laps/5.jpeg" alt="Step 4" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح نشرح التكينك السابع لي الـDomain Privilege وهو الـ LAPS</p>
+<p>قبل نبدا شرح التكنيك خلونا نعرف ايش هي فكرة الـLAPS او Local Administrator Password Solution ؟</p>
+<p>فكرة الـLAPS انه يقوم ب ادارة الباسوردات الخاصة في الـLocal Administrators في الاجهزة ف كل باسورد له تاريخ انتهاء بحيث اذا انتهى يتم انشاء باسورد عشوائي لي الـLocal Administrators</p>
+<p>ويتم حفظة كـClear Text في object يسمى ms-mcs-admpwd الخاص بالجهاز اللي لديه ميزة LAPS ولا يمكن لي اي شخص الاطلاع على الباسورد الا المستخدم او القروب اللي يملك صلاحية Read Property على هذا الجهاز</p>
+<p>في هذي المقالة راح نشوف ايش الاجهزة اللي لديها ميزة LAPS وايش هو المستخدم او القروب اللي عنده Read Property على هذا الجهاز عشان نتمكن من قراءة الباسورد الخاص في الـLocal Administrator</p>
+<p>الشرح:</p>
+<p>اول شي راح نسوي Load لي اداة PowerView عن طريق هذا الامر:</p>
+<p>Import-Module .\PowerView.ps1</p>
+<figure class="article-img"><img src="../assets/images/laps/2.jpeg" alt="Step 1" loading="lazy"></figure>
+
+<p>اول شي راح نشوف ايش الاجهزة اللي لديها ميزة LAPS عن طريق هذا الامر:</p>
+<p>Find-InterestingDomainAcl -ResolveGUIDs | where{$_.ObjectAceType -match "ms-Mcs-AdmPwd"}</p>
+<p>نلاحظ مع بعض ان الجهاز اللي اسمه IT-APPSRV01 اللي موجود في الـOrganazation unit اللي تسمى APPServer يحتوي على ميزة LAPS</p>
+<p>وانه القروب اللي اسمه Local Admins عنده صلاحية Read Property</p>
+<p>لكن المستخدم الخاص فيني اللي هو itemployee14 مو موجود في قروب Local Admins ف راح نبحث عن ACLs تسمح لي في اضافة المستخدم الخاص فيني في هذا القروب حتى اتمكن من قراءة الباسورد الخاص Local Administrator الموجود في جهاز IT-APPSRV01</p>
+<figure class="article-img"><img src="../assets/images/laps/3.jpeg" alt="Step 2" loading="lazy"></figure>
+
+<p>راح ننفذ هذا الامر عشان نبحث عن ACLs تفيدنا:</p>
+<p>Find-InterestingDomainAcl -ResolveGUIDs</p>
+<p>نلاحظ مع بعض ان قروب ITEmployeesUsers اللي انا متواجد فيه يمتلك صلاحية Write Property على قروب Local Admins</p>
+<p>الان اقدر اضيف نفسي في قروب Local Admins عن طريق هذا الامر:</p>
+<figure class="article-img"><img src="../assets/images/laps/4.jpeg" alt="Step 3" loading="lazy"></figure>
+
+<p>Add-DomainGroupMember -Identity LocalAdmins -Members itemployee14</p>
+<p>الان بعد ماضفت المستخدم الخاص فيني الى قروب Local Admins</p>
+<p>راح اسوي اشغل جلسة PowerShell بصلاحية Administrator واسوي Load لي اداة Powerview</p>
+<p>والان راح ننفذ هذا الامر عشان نتمكن من قراءة الباسورد الخاص في الـLocal Administrator المتواجد بجهاز IT-APPSRV01:</p>
+<p>Get-NetComputer -identity IT-APPSRV01</p>
+<figure class="article-img"><img src="../assets/images/laps/5.jpeg" alt="Step 4" loading="lazy"></figure>
+
+<p>زي مانلاحظ انه ظهر لنا الباسورد الخاص في الـLocal Administrator المتواجد بجهاز IT-APPSRV01 واللي هو O4+.5ZER2e2lj5</p>
+<p>الان راح ننفذ هذا الامر عشان ندخل لجهاز IT-APPSRV01 عن طريق المستخدم Administrator بالباسورد اللي استخرجناه</p>
+<p>وصلنا الى نهاية المقالة</p>
+<p>شاكر لكم.</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

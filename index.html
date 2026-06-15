@@ -1,0 +1,1028 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Jehad Alqurashi - Security Research</title>
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="index.html">Home</a></li>
+<li><a href="tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<main class="main">
+<div class="hero">
+<div class="hero-glow"></div>
+<div class="hero-avatar">
+<div class="hero-avatar-ring"></div>
+<div class="hero-avatar-inner">JA</div>
+</div>
+<h1>Jehad Alqurashi</h1>
+<div class="hero-subtitle">Offensive Security Researcher</div>
+<div class="hero-links">
+<a href="https://sa.linkedin.com/in/jehadalq" target="_blank" class="hero-link"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg> LinkedIn</a>
+<a href="https://x.com/je_1r" target="_blank" class="hero-link"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg> Twitter</a>
+</div>
+</div>
+
+<div class="stats-bar">
+<div class="stat-item"><div class="stat-number">52</div><div class="stat-label">Articles</div></div>
+<div class="stat-item"><div class="stat-number">5</div><div class="stat-label">Categories</div></div>
+</div>
+
+<div class="section-header">
+<h2>Articles</h2>
+<div class="line"></div>
+</div>
+
+<div class="search-container">
+<span class="search-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span>
+<input type="text" class="search-input" id="search-input" placeholder="Search articles..." oninput="searchPosts(this.value)">
+</div>
+
+<div class="filter-bar">
+<button class="filter-btn active" onclick="filterPosts('all',this)">All</button>
+<button class="filter-btn" onclick="filterPosts('active-directory',this)">active-directory (22)</button>
+<button class="filter-btn" onclick="filterPosts('linux-privesc',this)">linux-privesc (13)</button>
+<button class="filter-btn" onclick="filterPosts('network-attacks',this)">network-attacks (3)</button>
+<button class="filter-btn" onclick="filterPosts('web-security',this)">web-security (1)</button>
+<button class="filter-btn" onclick="filterPosts('windows-privesc',this)">windows-privesc (13)</button>
+
+</div>
+
+<div class="posts-grid">
+<article class="post-entry" data-category="active-directory" data-title="adcs-esc1" style="animation-delay:0.00s">
+<a href="articles/adcs-esc1.html" class="entry-link" aria-label="ADCS-ESC1"></a>
+<div class="entry-meta">
+<span class="entry-category">active-directory</span>
+<span class="entry-date">2024-01-15</span>
+</div>
+<header class="entry-header">
+<h2>ADCS-ESC1</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explore the first Domain Privilege Escalation technique through Active Directory Certificate Services (ADCS).</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#active-directory</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="active-directory" data-title="account operators to da" style="animation-delay:0.05s">
+<a href="articles/account-operators-to-da.html" class="entry-link" aria-label="Account Operators To DA"></a>
+<div class="entry-meta">
+<span class="entry-category">active-directory</span>
+<span class="entry-date">2024-01-10</span>
+</div>
+<header class="entry-header">
+<h2>Account Operators To DA</h2>
+</header>
+<div class="entry-content">
+<p>Members of the Account Operators group can modify members of other groups or change the passwords of users in those groups. However, there is a condition: the target user must not </p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#active-directory</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="active-directory" data-title="dns admins to domain admins" style="animation-delay:0.10s">
+<a href="articles/dns-admins-to-domain-admins.html" class="entry-link" aria-label="DNS Admins to Domain Admins"></a>
+<div class="entry-meta">
+<span class="entry-category">active-directory</span>
+<span class="entry-date">2024-01-05</span>
+</div>
+<header class="entry-header">
+<h2>DNS Admins to Domain Admins</h2>
+</header>
+<div class="entry-content">
+<p>Members of the DNS Admins group have privileges to add or modify Active Directory domains. They also have the ability to add a new configuration via a DLL file to any domain -- and</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#active-directory</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="active-directory" data-title="schema admins" style="animation-delay:0.15s">
+<a href="articles/schema-admins.html" class="entry-link" aria-label="Schema Admins"></a>
+<div class="entry-meta">
+<span class="entry-category">active-directory</span>
+<span class="entry-date">2023-12-28</span>
+</div>
+<header class="entry-header">
+<h2>Schema Admins</h2>
+</header>
+<div class="entry-content">
+<p>This group allows modification of the Active Directory schema (structure). If any user or machine is a member of the Schema Admins group, they have the ability to designate a user </p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#active-directory</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="active-directory" data-title="backup operators group to domain admin" style="animation-delay:0.20s">
+<a href="articles/backup-operators-to-domain-admin.html" class="entry-link" aria-label="Backup Operators Group To Domain Admin"></a>
+<div class="entry-meta">
+<span class="entry-category">active-directory</span>
+<span class="entry-date">2023-12-20</span>
+</div>
+<header class="entry-header">
+<h2>Backup Operators Group To Domain Admin</h2>
+</header>
+<div class="entry-content">
+<p>This group is automatically created when an Active Directory environment is installed, and it contains features that are useful for an attacker in reaching the Domain Controller. T</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#active-directory</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="network-attacks" data-title="relaying - smb relay and printer bug" style="animation-delay:0.25s">
+<a href="articles/smb-relay-and-printer-bug.html" class="entry-link" aria-label="Relaying - SMB Relay and Printer Bug"></a>
+<div class="entry-meta">
+<span class="entry-category">network-attacks</span>
+<span class="entry-date">2023-12-15</span>
+</div>
+<header class="entry-header">
+<h2>Relaying - SMB Relay and Printer Bug</h2>
+</header>
+<div class="entry-content">
+<p>Before reading this article, you should review the two previous articles: SMB Relay and LLMNR Poisoning.</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#network-attacks</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="network-attacks" data-title="relaying - smb relay" style="animation-delay:0.30s">
+<a href="articles/smb-relay.html" class="entry-link" aria-label="Relaying - SMB Relay"></a>
+<div class="entry-meta">
+<span class="entry-category">network-attacks</span>
+<span class="entry-date">2023-12-10</span>
+</div>
+<header class="entry-header">
+<h2>Relaying - SMB Relay</h2>
+</header>
+<div class="entry-content">
+<p>Before reading this article, it is important to review the previous article on LLMNR Poisoning, as the SMB Relay technique builds directly on the concepts covered there.</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#network-attacks</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="network-attacks" data-title="llmnr poisoning" style="animation-delay:0.35s">
+<a href="articles/llmnr-poisoning.html" class="entry-link" aria-label="LLMNR Poisoning"></a>
+<div class="entry-meta">
+<span class="entry-category">network-attacks</span>
+<span class="entry-date">2023-12-05</span>
+</div>
+<header class="entry-header">
+<h2>LLMNR Poisoning</h2>
+</header>
+<div class="entry-content">
+<p>LLMNR stands for Link-Local Multicast Name Resolution. Its primary function is to perform name resolution for devices within a local network when the DNS server does not know the a</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#network-attacks</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="active-directory" data-title="domain privilege escalation - sam accountname spoofing" style="animation-delay:0.40s">
+<a href="articles/sam-accountname-spoofing.html" class="entry-link" aria-label="Domain Privilege Escalation - Sam AccountName Spoofing"></a>
+<div class="entry-meta">
+<span class="entry-category">active-directory</span>
+<span class="entry-date">2023-11-28</span>
+</div>
+<header class="entry-header">
+<h2>Domain Privilege Escalation - Sam AccountName Spoofing</h2>
+</header>
+<div class="entry-content">
+<p>This article covers the ninth technique for Domain Privilege Escalation: Sam AccountName Spoofing (also known as CVE-2021-42278 / CVE-2021-42287).</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#active-directory</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="active-directory" data-title="domain privilege escalation - rbcd" style="animation-delay:0.45s">
+<a href="articles/rbcd.html" class="entry-link" aria-label="Domain Privilege Escalation - RBCD"></a>
+<div class="entry-meta">
+<span class="entry-category">active-directory</span>
+<span class="entry-date">2023-11-20</span>
+</div>
+<header class="entry-header">
+<h2>Domain Privilege Escalation - RBCD</h2>
+</header>
+<div class="entry-content">
+<p>This article covers the eighth Domain Privilege Escalation technique: RBCD, which stands for Resource-based Constrained Delegation.</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#active-directory</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="active-directory" data-title="domain privilege escalation - laps" style="animation-delay:0.50s">
+<a href="articles/laps.html" class="entry-link" aria-label="Domain Privilege Escalation - LAPS"></a>
+<div class="entry-meta">
+<span class="entry-category">active-directory</span>
+<span class="entry-date">2023-11-15</span>
+</div>
+<header class="entry-header">
+<h2>Domain Privilege Escalation - LAPS</h2>
+</header>
+<div class="entry-content">
+<p>This article covers the seventh technique for Domain Privilege Escalation: exploiting LAPS (Local Administrator Password Solution).</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#active-directory</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="active-directory" data-title="domain privilege escalation - child to parent" style="animation-delay:0.55s">
+<a href="articles/child-to-parent.html" class="entry-link" aria-label="Domain Privilege Escalation - Child to Parent"></a>
+<div class="entry-meta">
+<span class="entry-category">active-directory</span>
+<span class="entry-date">2023-11-10</span>
+</div>
+<header class="entry-header">
+<h2>Domain Privilege Escalation - Child to Parent</h2>
+</header>
+<div class="entry-content">
+<p>This article covers the sixth technique for Domain Privilege Escalation: Cross Forest (Child to Parent domain escalation).</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#active-directory</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="active-directory" data-title="domain privilege escalation - unconstrained delegation" style="animation-delay:0.60s">
+<a href="articles/unconstrained-delegation.html" class="entry-link" aria-label="Domain Privilege Escalation - Unconstrained Delegation"></a>
+<div class="entry-meta">
+<span class="entry-category">active-directory</span>
+<span class="entry-date">2023-11-05</span>
+</div>
+<header class="entry-header">
+<h2>Domain Privilege Escalation - Unconstrained Delegation</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain the fifth Domain Privilege Escalation technique: Unconstrained Delegation.</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#active-directory</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="active-directory" data-title="domain privilege escalation - constrained delegation attack" style="animation-delay:0.65s">
+<a href="articles/constrained-delegation.html" class="entry-link" aria-label="Domain Privilege Escalation - Constrained Delegation Attack"></a>
+<div class="entry-meta">
+<span class="entry-category">active-directory</span>
+<span class="entry-date">2023-10-28</span>
+</div>
+<header class="entry-header">
+<h2>Domain Privilege Escalation - Constrained Delegation Attack</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain the fourth Domain Privilege Escalation technique: Constrained Delegation.</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#active-directory</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="active-directory" data-title="domain privilege escalation - kerberoasting attack" style="animation-delay:0.70s">
+<a href="articles/kerberoasting.html" class="entry-link" aria-label="Domain Privilege Escalation - Kerberoasting Attack"></a>
+<div class="entry-meta">
+<span class="entry-category">active-directory</span>
+<span class="entry-date">2023-10-20</span>
+</div>
+<header class="entry-header">
+<h2>Domain Privilege Escalation - Kerberoasting Attack</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain the third Domain Privilege Escalation technique: Kerberoasting.</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#active-directory</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="active-directory" data-title="domain privilege escalation - as-rep attack" style="animation-delay:0.75s">
+<a href="articles/as-rep.html" class="entry-link" aria-label="Domain Privilege Escalation - AS-REP Attack"></a>
+<div class="entry-meta">
+<span class="entry-category">active-directory</span>
+<span class="entry-date">2023-10-15</span>
+</div>
+<header class="entry-header">
+<h2>Domain Privilege Escalation - AS-REP Attack</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain the second Domain Privilege Escalation technique: AS-REP Roasting.</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#active-directory</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="active-directory" data-title="domain privilege escalation - mssql impersonate sys admin" style="animation-delay:0.80s">
+<a href="articles/mssql-impersonate.html" class="entry-link" aria-label="Domain Privilege Escalation - MSSQL Impersonate Sys Admin"></a>
+<div class="entry-meta">
+<span class="entry-category">active-directory</span>
+<span class="entry-date">2023-10-10</span>
+</div>
+<header class="entry-header">
+<h2>Domain Privilege Escalation - MSSQL Impersonate Sys Admin</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain the first Domain Privilege Escalation technique: MSSQL Impersonation. In this technique, we will see how to compromise another machine running an M</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#active-directory</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="active-directory" data-title="persistence - silver ticket" style="animation-delay:0.85s">
+<a href="articles/silver-ticket.html" class="entry-link" aria-label="Persistence - Silver Ticket"></a>
+<div class="entry-meta">
+<span class="entry-category">active-directory</span>
+<span class="entry-date">2023-10-05</span>
+</div>
+<header class="entry-header">
+<h2>Persistence - Silver Ticket</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain the fourth technique for persistence on the Domain Controller: the Silver Ticket attack.</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#active-directory</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="active-directory" data-title="persistence - skeleton key" style="animation-delay:0.90s">
+<a href="articles/skeleton-key.html" class="entry-link" aria-label="Persistence - Skeleton Key"></a>
+<div class="entry-meta">
+<span class="entry-category">active-directory</span>
+<span class="entry-date">2023-09-28</span>
+</div>
+<header class="entry-header">
+<h2>Persistence - Skeleton Key</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will cover the third persistence technique for maintaining access to a Domain Controller: the Skeleton Key attack.</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#active-directory</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="active-directory" data-title="persistence - dsrm credentials" style="animation-delay:0.95s">
+<a href="articles/dsrm-credentials.html" class="entry-link" aria-label="Persistence - DSRM Credentials"></a>
+<div class="entry-meta">
+<span class="entry-category">active-directory</span>
+<span class="entry-date">2023-09-20</span>
+</div>
+<header class="entry-header">
+<h2>Persistence - DSRM Credentials</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will cover the second persistence technique for maintaining access to a Domain Controller: abusing the DSRM (Directory Services Restore Mode) credentials.</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#active-directory</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="active-directory" data-title="persistence - golden ticket" style="animation-delay:1.00s">
+<a href="articles/golden-ticket.html" class="entry-link" aria-label="Persistence - Golden Ticket"></a>
+<div class="entry-meta">
+<span class="entry-category">active-directory</span>
+<span class="entry-date">2023-09-15</span>
+</div>
+<header class="entry-header">
+<h2>Persistence - Golden Ticket</h2>
+</header>
+<div class="entry-content">
+<p>In the previous article, we achieved access to the Domain Controller. The Domain Controller is the machine that controls everything in the Active Directory environment. But how do </p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#active-directory</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="active-directory" data-title="privilege escalation and lateral movement part 2" style="animation-delay:1.05s">
+<a href="articles/privilege-escalation-lateral-movement-part2.html" class="entry-link" aria-label="Privilege Escalation And Lateral Movement Part 2"></a>
+<div class="entry-meta">
+<span class="entry-category">active-directory</span>
+<span class="entry-date">2023-09-10</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation And Lateral Movement Part 2</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we continue from where we left off in Part 1. After compromising the CMS, which was running with Local Administrator privileges under the user ciadmin, we now need</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#active-directory</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="active-directory" data-title="privilege escalation and lateral movement part 1" style="animation-delay:1.10s">
+<a href="articles/privilege-escalation-lateral-movement-part1.html" class="entry-link" aria-label="Privilege Escalation And Lateral Movement Part 1"></a>
+<div class="entry-meta">
+<span class="entry-category">active-directory</span>
+<span class="entry-date">2023-09-05</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation And Lateral Movement Part 1</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will demonstrate how to escalate privileges to Administrator on a local machine using the PowerUp tool, which automates the discovery of privilege escalation ve</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#active-directory</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="active-directory" data-title="attacking active directory - domain enumeration 2" style="animation-delay:1.15s">
+<a href="articles/domain-enumeration-2.html" class="entry-link" aria-label="Attacking Active Directory - Domain Enumeration 2"></a>
+<div class="entry-meta">
+<span class="entry-category">active-directory</span>
+<span class="entry-date">2023-08-28</span>
+</div>
+<header class="entry-header">
+<h2>Attacking Active Directory - Domain Enumeration 2</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we continue explaining PowerView commands for Active Directory domain enumeration. I know this topic can feel tedious, but it is essential to cover these commands </p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#active-directory</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="active-directory" data-title="domain enumeration - powerview 1" style="animation-delay:1.20s">
+<a href="articles/domain-enumeration-1.html" class="entry-link" aria-label="Domain Enumeration - PowerView 1"></a>
+<div class="entry-meta">
+<span class="entry-category">active-directory</span>
+<span class="entry-date">2023-08-20</span>
+</div>
+<header class="entry-header">
+<h2>Domain Enumeration - PowerView 1</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain how to perform information gathering against an Active Directory domain. Before we begin with the enumeration step, let us first take a look at wha</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#active-directory</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="windows-privesc" data-title="privilege escalation - dll hijacking" style="animation-delay:1.25s">
+<a href="articles/dll-hijacking.html" class="entry-link" aria-label="Privilege Escalation - DLL Hijacking"></a>
+<div class="entry-meta">
+<span class="entry-category">windows-privesc</span>
+<span class="entry-date">2023-08-15</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation - DLL Hijacking</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain privilege escalation through DLL Hijacking.</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#windows-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="linux-privesc" data-title="privilege escalation - wildcard injection" style="animation-delay:1.30s">
+<a href="articles/wildcard-injection.html" class="entry-link" aria-label="Privilege Escalation - Wildcard Injection"></a>
+<div class="entry-meta">
+<span class="entry-category">linux-privesc</span>
+<span class="entry-date">2023-08-10</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation - Wildcard Injection</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain privilege escalation through Wildcard Injection.</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#linux-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="linux-privesc" data-title="privilege escalation - ssh keys" style="animation-delay:1.35s">
+<a href="articles/ssh-keys.html" class="entry-link" aria-label="Privilege Escalation - SSH Keys"></a>
+<div class="entry-meta">
+<span class="entry-category">linux-privesc</span>
+<span class="entry-date">2023-08-05</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation - SSH Keys</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain privilege escalation through SSH keys.</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#linux-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="linux-privesc" data-title="privilege escalation - nfs port" style="animation-delay:1.40s">
+<a href="articles/nfs-port.html" class="entry-link" aria-label="Privilege Escalation - NFS Port"></a>
+<div class="entry-meta">
+<span class="entry-category">linux-privesc</span>
+<span class="entry-date">2023-07-28</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation - NFS Port</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain privilege escalation through the NFS port.</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#linux-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="linux-privesc" data-title="linux pe - kernel exploit" style="animation-delay:1.45s">
+<a href="articles/linux-kernel-exploit.html" class="entry-link" aria-label="Linux PE - Kernel Exploit"></a>
+<div class="entry-meta">
+<span class="entry-category">linux-privesc</span>
+<span class="entry-date">2023-07-20</span>
+</div>
+<header class="entry-header">
+<h2>Linux PE - Kernel Exploit</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain privilege escalation through Kernel Exploits.</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#linux-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="windows-privesc" data-title="windows pe - port forwarding" style="animation-delay:1.50s">
+<a href="articles/windows-pe-port-forwarding.html" class="entry-link" aria-label="Windows PE - Port Forwarding"></a>
+<div class="entry-meta">
+<span class="entry-category">windows-privesc</span>
+<span class="entry-date">2023-07-15</span>
+</div>
+<header class="entry-header">
+<h2>Windows PE - Port Forwarding</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will cover how to escalate privileges on a Windows system using Port Forwarding. First, let us understand what port forwarding is and why it matters in the cont</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#windows-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="windows-privesc" data-title="privilege escalation - startup programs" style="animation-delay:1.50s">
+<a href="articles/startup-programs.html" class="entry-link" aria-label="Privilege Escalation - StartUp Programs"></a>
+<div class="entry-meta">
+<span class="entry-category">windows-privesc</span>
+<span class="entry-date">2023-07-10</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation - StartUp Programs</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will cover how to escalate privileges on a Windows system by abusing the StartUp Programs folder.</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#windows-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="windows-privesc" data-title="privilege escalation - scheduled tasks" style="animation-delay:1.50s">
+<a href="articles/scheduled-tasks.html" class="entry-link" aria-label="Privilege Escalation - Scheduled Tasks"></a>
+<div class="entry-meta">
+<span class="entry-category">windows-privesc</span>
+<span class="entry-date">2023-07-05</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation - Scheduled Tasks</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will cover how to escalate privileges on a Windows system by exploiting Scheduled Tasks.</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#windows-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="windows-privesc" data-title="privilege escalation - stored credentials part 3" style="animation-delay:1.50s">
+<a href="articles/stored-credentials-part3.html" class="entry-link" aria-label="Privilege Escalation - Stored Credentials Part 3"></a>
+<div class="entry-meta">
+<span class="entry-category">windows-privesc</span>
+<span class="entry-date">2023-06-28</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation - Stored Credentials Part 3</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will cover how to escalate privileges on a Windows system using Stored Credentials -- Part 3. If you would like to see Part 2, check out the previous article in</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#windows-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="windows-privesc" data-title="privilege escalation - stored credentials part 2" style="animation-delay:1.50s">
+<a href="articles/stored-credentials-part2.html" class="entry-link" aria-label="Privilege Escalation - Stored Credentials Part 2"></a>
+<div class="entry-meta">
+<span class="entry-category">windows-privesc</span>
+<span class="entry-date">2023-06-20</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation - Stored Credentials Part 2</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will cover how to escalate privileges on a Windows system using Stored Credentials -- Part 2. If you would like to see Part 1, check out the previous article in</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#windows-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="windows-privesc" data-title="privilege escalation - stored credentials part 1" style="animation-delay:1.50s">
+<a href="articles/stored-credentials-part1.html" class="entry-link" aria-label="Privilege Escalation - Stored Credentials Part 1"></a>
+<div class="entry-meta">
+<span class="entry-category">windows-privesc</span>
+<span class="entry-date">2023-06-15</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation - Stored Credentials Part 1</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will cover how to escalate privileges on a Windows system using Stored Credentials. This technique will span multiple parts. Let us first understand the concept</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#windows-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="windows-privesc" data-title="privilege escalation - msi packages" style="animation-delay:1.50s">
+<a href="articles/msi-packages.html" class="entry-link" aria-label="Privilege Escalation - MSI Packages"></a>
+<div class="entry-meta">
+<span class="entry-category">windows-privesc</span>
+<span class="entry-date">2023-06-10</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation - MSI Packages</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain how to escalate privileges on a Windows system by abusing MSI Packages. Before we dive into the practical steps, let us first understand the concep</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#windows-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="windows-privesc" data-title="privilege escalation - weak registry services" style="animation-delay:1.50s">
+<a href="articles/weak-registry-services.html" class="entry-link" aria-label="Privilege Escalation - Weak Registry Services"></a>
+<div class="entry-meta">
+<span class="entry-category">windows-privesc</span>
+<span class="entry-date">2023-06-05</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation - Weak Registry Services</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain how to escalate privileges by exploiting Weak Registry Services on Windows. Every service on a Windows system has a corresponding path in the regis</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#windows-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="windows-privesc" data-title="privilege escalation - auto run programs" style="animation-delay:1.50s">
+<a href="articles/auto-run-programs.html" class="entry-link" aria-label="Privilege Escalation - Auto Run Programs"></a>
+<div class="entry-meta">
+<span class="entry-category">windows-privesc</span>
+<span class="entry-date">2023-05-28</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation - Auto Run Programs</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain how to escalate privileges by exploiting Auto Run programs on Windows. Some programs are configured by the system administrator to run automaticall</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#windows-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="windows-privesc" data-title="windows pe - insecure service permissions part 2" style="animation-delay:1.50s">
+<a href="articles/insecure-service-permissions-part2.html" class="entry-link" aria-label="Windows PE - Insecure Service Permissions Part 2"></a>
+<div class="entry-meta">
+<span class="entry-category">windows-privesc</span>
+<span class="entry-date">2023-05-20</span>
+</div>
+<header class="entry-header">
+<h2>Windows PE - Insecure Service Permissions Part 2</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will cover the second part of Insecure Service Permissions. It is recommended that you follow Part 1 first to avoid any confusion. This part is actually very st</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#windows-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="windows-privesc" data-title="windows privilege escalation - unquoted service path" style="animation-delay:1.50s">
+<a href="articles/unquoted-service-path.html" class="entry-link" aria-label="Windows Privilege Escalation - Unquoted Service Path"></a>
+<div class="entry-meta">
+<span class="entry-category">windows-privesc</span>
+<span class="entry-date">2023-05-15</span>
+</div>
+<header class="entry-header">
+<h2>Windows Privilege Escalation - Unquoted Service Path</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain how to escalate privileges by exploiting an Unquoted Service Path. Before we begin the practical demonstration, we need to understand a few importa</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#windows-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="windows-privesc" data-title="windows privilege escalation - insecure service permissions" style="animation-delay:1.50s">
+<a href="articles/insecure-service-permissions.html" class="entry-link" aria-label="Windows Privilege Escalation - Insecure Service Permissions"></a>
+<div class="entry-meta">
+<span class="entry-category">windows-privesc</span>
+<span class="entry-date">2023-05-10</span>
+</div>
+<header class="entry-header">
+<h2>Windows Privilege Escalation - Insecure Service Permissions</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain the first technique for escalating privileges on a Windows system through Insecure Service Permissions. Sometimes we find services where we can mod</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#windows-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="linux-privesc" data-title="privilege escalation - capabilities" style="animation-delay:1.50s">
+<a href="articles/capabilities.html" class="entry-link" aria-label="Privilege Escalation - Capabilities"></a>
+<div class="entry-meta">
+<span class="entry-category">linux-privesc</span>
+<span class="entry-date">2023-05-05</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation - Capabilities</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain privilege escalation through Linux capabilities. Let us first understand what capabilities are and how they work.</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#linux-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="linux-privesc" data-title="privilege escalation - services" style="animation-delay:1.50s">
+<a href="articles/services.html" class="entry-link" aria-label="Privilege Escalation - Services"></a>
+<div class="entry-meta">
+<span class="entry-category">linux-privesc</span>
+<span class="entry-date">2023-04-28</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation - Services</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain privilege escalation through Linux services. The Linux operating system contains many services, such as cronjob, apache2, and others. In this artic</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#linux-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="linux-privesc" data-title="privilege escalation - port forwarding linux" style="animation-delay:1.50s">
+<a href="articles/port-forwarding-linux.html" class="entry-link" aria-label="Privilege Escalation - Port Forwarding Linux"></a>
+<div class="entry-meta">
+<span class="entry-category">linux-privesc</span>
+<span class="entry-date">2023-04-20</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation - Port Forwarding Linux</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain privilege escalation through Local Port Forwarding. The idea behind this technique is that there is a local server running a web application with r</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#linux-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="linux-privesc" data-title="privilege escalation - path variable" style="animation-delay:1.50s">
+<a href="articles/path-variable.html" class="entry-link" aria-label="Privilege Escalation - Path Variable"></a>
+<div class="entry-meta">
+<span class="entry-category">linux-privesc</span>
+<span class="entry-date">2023-04-15</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation - Path Variable</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain privilege escalation through the PATH Variable technique. The idea behind this technique involves a file that has SUID permissions set. If you are </p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#linux-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="linux-privesc" data-title="privilege escalation - suid" style="animation-delay:1.50s">
+<a href="articles/suid.html" class="entry-link" aria-label="Privilege Escalation - SUID"></a>
+<div class="entry-meta">
+<span class="entry-category">linux-privesc</span>
+<span class="entry-date">2023-04-10</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation - SUID</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain privilege escalation through the SUID technique.</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#linux-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="linux-privesc" data-title="privilege escalation - misconfiguration" style="animation-delay:1.50s">
+<a href="articles/misconfiguration.html" class="entry-link" aria-label="Privilege Escalation - Misconfiguration"></a>
+<div class="entry-meta">
+<span class="entry-category">linux-privesc</span>
+<span class="entry-date">2023-04-05</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation - Misconfiguration</h2>
+</header>
+<div class="entry-content">
+<p>In this article, we will explain one of the Linux privilege escalation techniques. This technique relies on misconfiguration caused by the server administrator, specifically when t</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#linux-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="web-security" data-title="sqlmap tamper scripts" style="animation-delay:1.50s">
+<a href="articles/sqlmap-tamper.html" class="entry-link" aria-label="SQLmap Tamper Scripts"></a>
+<div class="entry-meta">
+<span class="entry-category">web-security</span>
+<span class="entry-date">2023-03-28</span>
+</div>
+<header class="entry-header">
+<h2>SQLmap Tamper Scripts</h2>
+</header>
+<div class="entry-content">
+<p>In this article, I will walk you through the practical use of tamper scripts with the sqlmap tool for exploiting SQL Injection vulnerabilities. Tamper scripts are an essential feat</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#web-security</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="linux-privesc" data-title="privilege escalation - sudo part 2" style="animation-delay:1.50s">
+<a href="articles/sudo-part2.html" class="entry-link" aria-label="Privilege Escalation - Sudo Part 2"></a>
+<div class="entry-meta">
+<span class="entry-category">linux-privesc</span>
+<span class="entry-date">2023-03-20</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation - Sudo Part 2</h2>
+</header>
+<div class="entry-content">
+<p>In this article, I will explain another Linux privilege escalation technique that relies on Sudo. This is a continuation of the Sudo series, so if you have not read Part 1, make su</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#linux-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="linux-privesc" data-title="privilege escalation - sudo part 1" style="animation-delay:1.50s">
+<a href="articles/sudo-part1.html" class="entry-link" aria-label="Privilege Escalation - Sudo Part 1"></a>
+<div class="entry-meta">
+<span class="entry-category">linux-privesc</span>
+<span class="entry-date">2023-03-15</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation - Sudo Part 1</h2>
+</header>
+<div class="entry-content">
+<p>In this article, I will explain one of the techniques for privilege escalation on Linux systems. This technique relies on Sudo, so if you do not have a background on the sudoers fi</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#linux-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+<article class="post-entry" data-category="linux-privesc" data-title="privilege escalation - cron jobs" style="animation-delay:1.50s">
+<a href="articles/cron-jobs.html" class="entry-link" aria-label="Privilege Escalation - Cron Jobs"></a>
+<div class="entry-meta">
+<span class="entry-category">linux-privesc</span>
+<span class="entry-date">2023-03-10</span>
+</div>
+<header class="entry-header">
+<h2>Privilege Escalation - Cron Jobs</h2>
+</header>
+<div class="entry-content">
+<p>In this article, I will explain one of the techniques for privilege escalation on Linux systems. This technique relies on exploiting Cron Jobs. If you do not have a background on C</p>
+</div>
+<footer class="entry-footer">
+<span class="entry-tag">#linux-privesc</span>
+<span class="entry-arrow">&rarr;</span>
+</footer>
+</article>
+
+</div>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function filterPosts(cat, btn) {
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('search-input').value='';
+  document.querySelectorAll('.post-entry').forEach(function(card){
+    card.style.display = (cat === 'all' || card.dataset.category === cat) ? '' : 'none';
+  });
+}
+function searchPosts(q) {
+  q=q.toLowerCase().trim();
+  document.querySelectorAll('.filter-btn').forEach(function(b,i){
+    b.classList.toggle('active',i===0);
+  });
+  document.querySelectorAll('.post-entry').forEach(function(card){
+    card.style.display=(!q||card.dataset.title.includes(q))?'':'none';
+  });
+}
+</script>
+</body>
+</html>

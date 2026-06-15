@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>LLMNR Poisoning | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">network-attacks</a><span class="sep">/</span><span>LLMNR Poisoning</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">network-attacks</span>
+<span class="post-date">2023-12-05</span>
+</div>
+<h1 class="post-title">LLMNR Poisoning</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>What is Link-Local Multicast Name Resolution (LLMNR)?</h2>
+<p>LLMNR stands for Link-Local Multicast Name Resolution. Its primary function is to perform name resolution for devices within a local network when the DNS server does not know the answer.</p>
+<p>Here is how it works in practice: when you type a URL for a specific website or resource inside the network, your browser asks the DNS server configured on your machine for the corresponding IP address. If the DNS server does not have the answer, the LLMNR protocol kicks in. It sends a multicast (broadcast) message to all devices on the network, essentially asking: "Does anyone know this host?" One of the devices on the network may respond with the correct IP, or if the target host itself is on the same network, it will reply saying "That is me!"</p>
+<h2>What is LLMNR Poisoning?</h2>
+<p>The idea behind this technique is straightforward. We use a tool called Responder to exploit the LLMNR protocol. When a user on the network tries to access a website that does not exist, or an SMB share on a machine that is not present on the network, a broadcast message is sent out to all devices in the network. Responder intercepts this broadcast and responds to it, pretending to be the requested resource. In the process, it captures the NTLMv2 hash belonging to the user who initiated the request. Once we have this hash, we crack it offline and then use the recovered credentials to authenticate to the target machine via SMB.</p>
+<h2>Walkthrough</h2>
+<h3>Step 1: Start the Responder Tool</h3>
+<p>First, we launch the Responder tool to begin listening for LLMNR and NBT-NS broadcast requests on the network:</p>
+<pre><code class="language-bash">sudo python2 Responder.py -I eth0 -wv
+</code></pre>
+<p>You need to replace <code>eth0</code> with the network interface that is connected to the target network where you want to capture credentials.</p>
+
+<figure class="article-img"><img src="../assets/images/llmnr/2.png" alt="Step 1" loading="lazy"></figure>
+<h3>Step 2: Trigger a Name Resolution Request</h3>
+<p>Now we need a machine on the network to trigger an LLMNR request. This happens when a Windows user tries to access a non-existent SMB share via name resolution. For example, if someone on a Windows machine opens File Explorer or the Run dialog and types:</p>
+<pre><code>\\jehad.local\secret
+</code></pre>
+<p>This share does not exist on the network, so the DNS server cannot resolve it. The machine then falls back to LLMNR and sends a broadcast asking all network devices if they know <code>jehad.local</code>. Responder will answer that broadcast request and capture the NTLMv2 hash of the user who made the request.</p>
+
+<figure class="article-img"><img src="../assets/images/llmnr/3.png" alt="Step 2" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/llmnr/4.png" alt="Step 3" loading="lazy"></figure>
+<h3>Step 3: Capture the NTLMv2 Hash</h3>
+<p>Once the user presses OK or Enter, Responder immediately captures and displays the NTLMv2 hash belonging to that user.</p>
+<p>The same thing happens if a user tries to browse to a website using an incomplete URL. For example, if someone types <code>http://imdb</code> in their browser (forgetting to add <code>.com</code>), the DNS server will not be able to resolve it. The machine falls back to LLMNR, and Responder captures the hash in exactly the same way.</p>
+
+<figure class="article-img"><img src="../assets/images/llmnr/5.png" alt="Step 4" loading="lazy"></figure>
+<h3>Step 4: Crack the Hash Using Hashcat</h3>
+<p>Now that we have the captured NTLMv2 hash, we need to crack it to obtain the plaintext password. We use hashcat with mode 5600, which is the mode for NTLMv2 hashes:</p>
+<pre><code class="language-bash">hashcat -m 5600 hash passwd
+</code></pre>
+<ul>
+<li><code>-m 5600</code> specifies the hash type as NTLMv2.</li>
+<li><code>hash</code> is the file containing the captured NTLMv2 hash.</li>
+<li><code>passwd</code> is the wordlist file used for the dictionary attack.</li>
+</ul>
+
+<figure class="article-img"><img src="../assets/images/llmnr/6.png" alt="Step 5" loading="lazy"></figure>
+<h3>Step 5: Verify Write Access on SMB Shares</h3>
+<p>After successfully cracking the hash and recovering the credentials, we need to verify whether we have write access to any important shares on the target machine, such as <code>ADMIN$</code> or <code>C$</code>. We use smbmap for this verification:</p>
+<pre><code class="language-bash">smbmap -u Administrator -p toor -d workgroup -H 192.168.100.110
+</code></pre>
+<ul>
+<li><code>-u Administrator</code> specifies the username.</li>
+<li><code>-p toor</code> specifies the cracked password.</li>
+<li><code>-d workgroup</code> specifies the domain or workgroup.</li>
+<li><code>-H 192.168.100.110</code> specifies the target host IP.</li>
+</ul>
+<p>After running this command, we can confirm that we have write access to the target shares.</p>
+
+<figure class="article-img"><img src="../assets/images/llmnr/7.png" alt="Step 6" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/llmnr/8.png" alt="Step 7" loading="lazy"></figure>
+<h3>Step 6: Gain Remote Code Execution via PsExec</h3>
+<p>Now that we have confirmed write access, we can use any tool that supports SMB authentication to gain a remote shell on the target. Options include psexec, smbclient, or Metasploit. Here we use Impacket's psexec.py:</p>
+<pre><code class="language-bash">python3 /usr/share/doc/python3-impacket/examples/psexec.py Administrator:toor@192.168.100.110
+</code></pre>
+<p>This command authenticates to the target machine using the cracked credentials and gives us a SYSTEM-level interactive command shell.</p>
+<figure class="article-img"><img src="../assets/images/llmnr/9.png" alt="Step 8" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>ايش هو الـLink-Local Multicast Name Resolution(LLMNR):</p>
+<p>هو بأختصار لـLink-Local Multicast Name Resolution وهو عمله يتلخص في عده أشياء أهمها عمل name resolution للأجهزه داخل الشبكه عندما لا يعلم الـDNS Server الأجابه</p>
+<p>مثال عندما تكتب عنوان لموقع محدد داخل الشبكه يقوم المتصفح بسؤال الـDNS server الموجود في أعدادات الجهاز عن الـIP الخاص به فعندما لا يعلم الأجابه فهنا يأتي دور الـLLMNR Protocol فيقوم بعمل Multicast أو بث لكل الأجهزه التي علي الشبكه يسألهم فيها هل يعرف احد هذا الجهاز فيجيب عليه أحد الأجهزه علي الشبكه ويقول هو فلان أو يجيب الهوست نفسه أذا كان علي نفس الشبكه ويقول هذا أنا!</p>
+<p>ايش هو الـLLMNR Piosinng:</p>
+<p>فكرة التكنيك ببساطة انه راح نستخدم اداة Responder عندما يريد احد المستخدمين الدخول على موقع غير متواجد او SMB share على جهاز اخر غير موجود في الشبكة يتم ارسال Broadcast Message الى الاجهزة اللي داخل الشبكة وراح ترد عليه اداة Responder وتاخذ منه ال NTLMv2 Hash الخاص بالمستخدم اللي داخل منه وبعد كذا راح نسوي Crack لي الـHash وندخل على الجهاز عن طريق الـSMB</p>
+<p>الشرح:</p>
+<figure class="article-img"><img src="../assets/images/llmnr/2.png" alt="Step 1" loading="lazy"></figure>
+
+<p>في بداية الامر راح نشغل اداة Responder عن طريق هذا الامر:</p>
+<p>sudo python2 Responder.py -I eth0 -wv</p>
+<figure class="article-img"><img src="../assets/images/llmnr/3.png" alt="Step 2" loading="lazy"></figure>
+
+<p>طبعا انت راح تعوض فقط الـInterface حسب الشبكة اللي ودك تصيد فيها مستخدمين</p>
+<p>الان لو احد الاجهزة حاول البحث عن اسم smb share غير موجود عن طريق Name Resolution راح نلتقط الـNTLMv2</p>
+<p>الان راح اروح للوندوز وابحث عن هذا الـ SMB Share غير موجود واللي هو:</p>
+<figure class="article-img"><img src="../assets/images/llmnr/4.png" alt="Step 3" loading="lazy"></figure>
+
+<p>\\jehad.local\secret</p>
+<p>الان بعد الضغط على OK اداة Responder راح تلقط الـNTLMv2 الخاص بالمستخدم</p>
+<p>طيب خلونا نجرب لو المستخدم جرب يبحث عن موقع اسمه imdb بس نسي يحط com</p>
+<figure class="article-img"><img src="../assets/images/llmnr/5.png" alt="Step 4" loading="lazy"></figure>
+
+<p>http://imdb</p>
+<p>الان راح نرجع لي اداة Responder ونشوف النتيجة (:</p>
+<figure class="article-img"><img src="../assets/images/llmnr/6.png" alt="Step 5" loading="lazy"></figure>
+
+<p>الان راح اكرك الهاش عن طريق اداة hashcat عن طريق هذا الامر:</p>
+<p>hashcat -m 5600 hash passwd</p>
+<p>الان كل اللي علينا نستخدم اي اداة تسوي Authentication على الـSMB مثل: psexec او smbclient او metasploit</p>
+<figure class="article-img"><img src="../assets/images/llmnr/7.png" alt="Step 6" loading="lazy"></figure>
+
+<p>بس قبل كل شي دايم حاول تتاكد هل عندك write على احد هذي الـshares مثل:ADMIN$ او C$</p>
+<p>طبعا راح نتاكد عن طريق اداة smbmap عن طريق هذا الامر:</p>
+<p>smbmap -u Administrator -p toor -d workgroup -H 192.168.100.110</p>
+<figure class="article-img"><img src="../assets/images/llmnr/8.png" alt="Step 7" loading="lazy"></figure>
+
+<p>الان تاكدنا انه عندنا write</p>
+<p>راح ننفذ هذا الامر عن طريق اداة psexec :</p>
+<figure class="article-img"><img src="../assets/images/llmnr/9.png" alt="Step 8" loading="lazy"></figure>
+
+<p>python3 /usr/share/doc/python3-impacket/examples/psexec.py Administrator:toor@192.168.100.110</p>
+<p>وصلنا لنهاية المقالة</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

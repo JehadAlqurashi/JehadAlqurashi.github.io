@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Domain Privilege Escalation - MSSQL Impersonate Sys Admin | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">active-directory</a><span class="sep">/</span><span>Domain Privilege Escalation - MSSQL Impersonate Sys Admin</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">active-directory</span>
+<span class="post-date">2023-10-10</span>
+</div>
+<h1 class="post-title">Domain Privilege Escalation - MSSQL Impersonate Sys Admin</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will explain the first Domain Privilege Escalation technique: MSSQL Impersonation. In this technique, we will see how to compromise another machine running an MSSQL service by impersonating the sysadmin account.</p>
+<h2>Step-by-Step Walkthrough</h2>
+<h3>Step 1: Load the PowerUpSQL Module</h3>
+<p>We are logged in as the user <code>pastudent131</code>. First, we load the PowerUpSQL tool into our PowerShell session:</p>
+<pre><code class="language-powershell">Import-Module .\PowerUpSQL-master\PowerUpSQL.ps1
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/domain-privilege-active-directory/2.jpeg" alt="Step 1" loading="lazy"></figure>
+<h3>Step 2: Enumerate MSSQL Instances Accessible to Our User</h3>
+<p>Now we check whether our current user has access to any MSSQL service instances running on other machines in the domain:</p>
+<pre><code class="language-powershell">Get-SQLInstanceDomain | Get-SQLServerInfo -Verbose
+</code></pre>
+<p>We can see that our user <code>pastudent131</code> has access to an MSSQL service on another machine: <code>UFC-SQLDev.us.funcorp.local</code>.</p>
+<p>However, the problem is that our user does not have sysadmin privileges on this MSSQL instance. Without sysadmin access, we cannot execute operating system commands on the underlying host via <code>xp_cmdshell</code>, which means we cannot obtain a reverse shell.</p>
+
+<figure class="article-img"><img src="../assets/images/domain-privilege-active-directory/3.jpeg" alt="Step 2" loading="lazy"></figure>
+<h3>Step 3: Identify Which Users Can Be Impersonated</h3>
+<p>Now we check which users we can impersonate on this MSSQL instance by querying the IMPERSONATE permissions:</p>
+<pre><code class="language-powershell">Get-SQLServerLinkCrawl -Instance &lt;INSTANCE&gt; -Verbose -Query 'SELECT distinct b.name FROM sys.server_permissions a INNER JOIN sys.server_principals b ON a.grantor_principal_id = b.principal_id WHERE a.permission_name = ''IMPERSONATE'''
+</code></pre>
+<p>We discover that we can impersonate two users: <code>sa</code> and <code>dbuser</code>. However, we do not yet know which one of them has sysadmin privileges.</p>
+
+<figure class="article-img"><img src="../assets/images/domain-privilege-active-directory/4.jpeg" alt="Step 3" loading="lazy"></figure>
+<h3>Step 4: Determine Which Users Have Sysadmin Privileges</h3>
+<p>To figure out which impersonatable user holds sysadmin privileges, we run the following audit command:</p>
+<pre><code class="language-powershell">Invoke-SQLAuditPrivImpersonateLogin -Instance ufc-sqldev -Verbose -Debug -Exploit
+</code></pre>
+<p>The output reveals the following impersonation chain:</p>
+<ul>
+<li>Any user in the <strong>RDPUsers</strong> group can impersonate the user <code>dbuser</code>, but <code>dbuser</code> does <strong>not</strong> have sysadmin privileges.</li>
+<li>The user <code>dbuser</code> can impersonate the user <code>sa</code>, and <code>sa</code> <strong>does</strong> have sysadmin privileges.</li>
+</ul>
+<p>This means we need to chain the impersonation: first impersonate <code>dbuser</code>, then from <code>dbuser</code> impersonate <code>sa</code> to gain sysadmin access.</p>
+
+<figure class="article-img"><img src="../assets/images/domain-privilege-active-directory/5.jpeg" alt="Step 4" loading="lazy"></figure>
+<h3>Step 5: Chain Impersonation and Execute OS Commands</h3>
+<p>Now we chain the impersonation by first executing as <code>dbuser</code>, then as <code>sa</code>, and finally running <code>whoami</code> on the target machine via <code>xp_cmdshell</code>:</p>
+<pre><code class="language-powershell">Get-SQLQuery -Verbose -instance ufc-sqldev -Query &quot;EXECUTE AS LOGIN = 'dbuser';EXECUTE AS LOGIN = 'sa';exec xp_cmdshell 'whoami' &quot; -User USFUN\pastudent131
+</code></pre>
+<p>The command successfully returns the output of <code>whoami</code>, confirming we now have OS-level command execution on the <code>ufc-sqldev</code> machine with the highest privileges.</p>
+
+<figure class="article-img"><img src="../assets/images/domain-privilege-active-directory/6.jpeg" alt="Step 5" loading="lazy"></figure>
+<h3>Step 6: Obtain a Reverse Shell</h3>
+<p>Now that we have confirmed command execution, we set up an HTTP server hosting the <code>Invoke-PowerShellTcp.ps1</code> reverse shell script, and start a Netcat listener to catch the incoming connection.</p>
+<p>We then use the same impersonation chain to download and execute the reverse shell script on the target machine, giving us a fully interactive shell with <code>NT AUTHORITY\SYSTEM</code> level access on the MSSQL server host.</p>
+<figure class="article-img"><img src="../assets/images/domain-privilege-active-directory/7.jpeg" alt="Step 6" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح نشرح التكينك الاول لي الـDomain Privilege وهو الـMSSQLimpersonate</p>
+<p>في هذا التكنيك راح نشوف كيف راح نخترق جهاز اخر يوجد عليه خدمة MSSQL عن طريق انتحال الـsysadmin</p>
+<p>الشرح:</p>
+<p>اول شي انا داخل بمستخدم pastudent131 راح نسوي Load لاداة PowerUpSQL عن طريق هذا الامر:</p>
+<p>Import-Module .\PowerUpSQL-master\PowerUpSQL.ps1</p>
+<p>الان راح نشوف هل اليوزر الخاص بنا عنده صلاحيات انه يسوي Access لخدمة MSSQL اخرى موجودة في جهاز اخر</p>
+<figure class="article-img"><img src="../assets/images/domain-privilege-active-directory/2.jpeg" alt="Step 1" loading="lazy"></figure>
+
+<p>عن طريق هذا الامر:</p>
+<p>Get-SQLInstanceDomain | Get-SQLServerInfo -Verbose</p>
+<p>نلاحظ انه المستخدم الخاص فينا اللي هو pastudent131 عنده Access على سيرفس MSSQL على جهاز اخر واللي هو UFC-SQLDev.us.funcorp.local</p>
+<figure class="article-img"><img src="../assets/images/domain-privilege-active-directory/3.jpeg" alt="Step 2" loading="lazy"></figure>
+
+<p>لكن المشكلة انه المستخدم الخاص فينا لا يملك صلاحية SysAdmin ف مانقدر ننفذ اوامر على النظام اللي عليه MSSQL Service عشان نجيب Reverse Shell</p>
+<p>الان راح نشوف ايش المستخدمين اللي ممكن نسويلهم انتحال عن طريق هذا الامر:</p>
+<p>Get-SQLServerLinkCrawl -Instance &lt;INSTANCE&gt; -Verbose -Query 'SELECT distinct b.name FROM sys.server_permissions a INNER JOIN sys.server_principals b ON a.grantor_principal_id = b.principal_id WHERE a.permission_name = ''IMPERSONATE'''</p>
+<figure class="article-img"><img src="../assets/images/domain-privilege-active-directory/4.jpeg" alt="Step 3" loading="lazy"></figure>
+
+<p>نلاحظ انه يممكنا انتحال مستخدمين واللي هم sa و dbuser بس مانعرف اي واحد فيهم عنده صلاحية sysadmin</p>
+<p>لذلك راح ننفذ امر وراح يوضح لنا اي المستخدمين عنده صلاحية sysadmin :</p>
+<p>Invoke-SQLAuditPrivImpersonateLogin -Instance ufc-sqldev -Verbose -Debug -Exploit</p>
+<p>لو نلاحظ انه كاتب لنا اي مستخدم موجود في قروب RDPUsers يمكنه انتحال المستخدم dbuser بس ماعنده صلاحيات sysadmin</p>
+<figure class="article-img"><img src="../assets/images/domain-privilege-active-directory/5.jpeg" alt="Step 4" loading="lazy"></figure>
+
+<p>ويمكن للمستخدم dbuser انتحال المستخدم sa ويملك صلاحيات SysAdmin (:</p>
+<p>الان اللي راح نسويه انه ننتحل المستخدم dbuser وبعد كذا نتحل المستخدم sa</p>
+<p>راح ننفذ هذا الامر بحيث راح ينتحل لنا المستخدم dbuser بعدين المستخدم sa وراح ينفذ لنا امر whoami على جهاز ufc-sqldev :</p>
+<figure class="article-img"><img src="../assets/images/domain-privilege-active-directory/6.jpeg" alt="Step 5" loading="lazy"></figure>
+
+<p>Get-SQLQuery -Verbose -instance ufc-sqldev -Query "EXECUTE AS LOGIN = 'dbuser';EXECUTE AS LOGIN = 'sa';exec xp_cmdshell 'whoami' " -User USFUN\pastudent131</p>
+<p>جميل جدا (:</p>
+<p>الان راح افتح http server وراح انقل سكربت Invoke-PowerShellTcp عشان نجيب Reverse Shell وراح افتح تنصت عن طريق netcat (:</p>
+<figure class="article-img"><img src="../assets/images/domain-privilege-active-directory/7.jpeg" alt="Step 6" loading="lazy"></figure>
+
+<p>وبكذا وصلنا الى نهاية المقالة و اتمنى انه نالت على اعجابكم</p>
+<p>شاكر لكم.</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

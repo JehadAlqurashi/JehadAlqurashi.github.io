@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Privilege Escalation - DLL Hijacking | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">windows-privesc</a><span class="sep">/</span><span>Privilege Escalation - DLL Hijacking</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">windows-privesc</span>
+<span class="post-date">2023-08-15</span>
+</div>
+<h1 class="post-title">Privilege Escalation - DLL Hijacking</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will explain privilege escalation through DLL Hijacking.</p>
+<p>Some Windows services depend on DLL files when they start. If the DLL file that a service depends on has been deleted, Windows will search for it in several directories in a specific order:</p>
+<ol>
+<li>The current directory of the service</li>
+<li><code>C:\Windows\system32</code></li>
+<li><code>C:\Windows</code></li>
+<li><code>C:\Users\AllUsers\AppData\Local\Microsoft\WindowsApps</code></li>
+<li><code>C:\Temp</code></li>
+</ol>
+<p>If we have write permissions on one of these paths and we also know that a service depends on a DLL file, we can create a malicious file with the <code>.dll</code> extension that has the same name as the file the service is searching for.</p>
+<p>Unfortunately, it is difficult to determine whether a service depends on a specific DLL or not without using the Process Monitor program, and this program requires elevated privileges to run.</p>
+<h2>The Attack</h2>
+<h3>Initial Access</h3>
+<p>First, we are logged in as a limited-privilege user called <code>user</code>, as is typical in our scenarios.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-dll-hijacking/1.jpeg" alt="Step 1" loading="lazy"></figure>
+<h3>Running WinPEAS for Enumeration</h3>
+<p>We run the WinPEAS tool and review the results together. We notice that we have write permissions on the <code>Temp</code> folder. As we mentioned earlier, the <code>Temp</code> folder is one of the directories where Windows searches for missing DLL files.</p>
+<p>WinPEAS also identifies the service that is vulnerable to DLL Hijacking.</p>
+<p><strong>Note:</strong> As mentioned earlier, it is difficult to know that a service is vulnerable to DLL Hijacking without Process Monitor, which requires elevated privileges.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-dll-hijacking/2.png" alt="Step 2" loading="lazy"></figure>
+<h3>Checking Service Permissions</h3>
+<p>Now we check whether we have permission to start and stop the service by using the <code>accesschk</code> tool.</p>
+<p>We confirm that we have the permissions to start and stop the service. As we learned in previous articles about services, if we do not have the ability to start and stop a service, we will not be able to exploit it.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-dll-hijacking/3.png" alt="Step 3" loading="lazy"></figure>
+<h3>Generating the Malicious DLL</h3>
+<p>Now we will create a malicious DLL file using the <code>msfvenom</code> tool. The name of the malicious file must be the same as the name of the file that the service is looking for.</p>
+<p>How did we know the DLL name is <code>hijackme</code>? Again, this was determined through Process Monitor, which requires elevated privileges.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-dll-hijacking/4.png" alt="Step 4" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-dll-hijacking/5.png" alt="Step 5" loading="lazy"></figure>
+<h3>Transferring the Payload</h3>
+<p>We now transfer the malicious file to the <code>Temp</code> folder on the target machine.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-dll-hijacking/6.png" alt="Step 6" loading="lazy"></figure>
+<h3>Setting Up the Listener and Triggering the Exploit</h3>
+<p>We set up a listener on the port specified in the malicious file using <code>netcat</code>.</p>
+<p>Then we start the service using this command:</p>
+<pre><code>net start dllsvc
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-dll-hijacking/7.png" alt="Step 7" loading="lazy"></figure>
+<h3>Result</h3>
+<p>With that, we have successfully escalated our privileges through DLL Hijacking. When the service started, it loaded our malicious DLL from the <code>Temp</code> directory instead of the legitimate one, giving us a reverse shell with elevated privileges.</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-dll-hijacking/8.png" alt="Step 8" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح نشرح رفع الصلاحيات عن طريق ال DLL Hijacking</p>
+<p>بعض السيرفس تعتمد على ملفات DLL وقت تشغيلها لكن اذا ملف ال DLL اللي تعتمد عليه السيرفيس انحذف راح يقوم وندوز بالبحث عنه فيه عدة مسارات طبعا راح اذكرها لكم:</p>
+<p>The current directory of the service</p>
+<p>C:\Windows\system32</p>
+<p>C:\Windows</p>
+<p>C:\Users\AllUsers\AppData\Local\Microsoft\WindowsApps</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-dll-hijacking/1.jpeg" alt="Step 1" loading="lazy"></figure>
+
+<p>C:\Temp</p>
+<p>نفترض لو عندنا صلاحية كتابة على احد هذي المسارات وكمان نعرف انه في سيرفس تعتمد على ملفات dll ف راح نسوي ملف خبيث يكون امتداده dll ويكون بنفس اسم الملف اللي يبحث عنه السيرفيس</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-dll-hijacking/2.png" alt="Step 2" loading="lazy"></figure>
+
+<p>لكن للاسف من الصعب انه تعرف هل السيرفيس هذي تعتمد على dll او لا الا عن طريق برنامج Proccess Monitor وهذا البرنامج يتطلب صلاحية عالية</p>
+<p>الشرح:</p>
+<p>طيب اول شي انا داخل بيوزر محدود الصلاحية كالعادة اللي هو user</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-dll-hijacking/3.png" alt="Step 3" loading="lazy"></figure>
+
+<p>بعد كذا راح استخدم اداة winpease ونشوف النتائج مع بعض</p>
+<p>نلاحظ انه عندنا صلاحية كتابة على مجلد Temp ونحن ذكرنا سابقا ان مجلد Temp احدى المجلدات اللي يتم فيها البحث عن ملفات DLL</p>
+<p>هذي السيرفس اللي مصابة ب DLL Hijacking</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-dll-hijacking/4.png" alt="Step 4" loading="lazy"></figure>
+
+<p>ملاحظة: طبعا زي ماذكرت لكم سابقا صعب تعرف انها مصابه الا ببرنامج Proccess Monitor وهذا البرنامج يتطلب صلاحية عالية</p>
+<p>الان بشوف هل عندي صلاحية انه اسوي start و stop للسيرفيس او لا عن طريق اداة accesschk</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-dll-hijacking/5.png" alt="Step 5" loading="lazy"></figure>
+
+<p>نلاحظ انه معنا صلاحية انه نسوي Start و Stop للسيرفس ونحن تعلمنا ف المقالات السابقة الخاصة بالسيرفيسيس انه لو ماعندنا صلاحيه ان نسوي Start و Stop ماراح نقدر نستغل السيرفيس</p>
+<p>طيب اللحين راح اسوي ملف خبيث عن طريق اداة msfvenom</p>
+<p>اسم الملف الخبيث لازم يكون بنفس اسم الملف اللي تبحث عنه السيرفيس</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-dll-hijacking/6.png" alt="Step 6" loading="lazy"></figure>
+
+<p>طيب كيف عرفت ان اسمه hijackme برضه عن طريق برنامج Proccess Monitor وهذا البرنامج يتطلب صلاحية عالية</p>
+<p>الان راح انقل الملف الخبيث الى مجلد Temp</p>
+<p>الان راح اتنصت على البورت الخاص بالملف الخبيث عن طريق netcat</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-dll-hijacking/7.png" alt="Step 7" loading="lazy"></figure>
+
+<p>بعد كذا راح اسوي start للسيرفيس عن طريق هذا الامر:</p>
+<p>net start dllsvc</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-dll-hijacking/8.png" alt="Step 8" loading="lazy"></figure>
+
+<p>وبكذا نكون رفعنا صلاحياتنا عن طريق DLL Hijacking</p>
+<p>شاكر لكم.</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

