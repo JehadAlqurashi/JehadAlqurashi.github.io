@@ -478,7 +478,6 @@ uint64_t runtime_va = ntoskrnlAddr + offset;</code></pre>
 <line x1="480" y1="832" x2="480" y2="847" stroke="#64748b" stroke-width="1.5" marker-end="url(#fig2ar-arrow)"/>
 <text x="480" y="946" fill="#64748b" font-family="Inter, sans-serif" font-size="10" text-anchor="middle">Only the vulnerable bootstrap is removed; the mapped driver keeps its device and IOCTL surface.</text>
 </svg>
-<figcaption><strong>Figure 2.</strong> الـ full chain: user mode، ThrottleStop، الـ IOCTLين، physical memory، call gate، target، وبعدها kdriver.sys.</figcaption>
 </figure>
 
 <h3>الخطوة 1: Kernel Base + NtAddAtom</h3>
