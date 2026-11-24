@@ -281,7 +281,6 @@ LABEL_68:
 <li><strong><code>0x80006498</code> — READ:</strong> اليوزر يرسل له physical address والقيمة لازم تكون 1 او 2 او 4 او 8 بايت الدرايفر يسوي map للـ physical page، يقرأ البايتات، ويرجعها لليوزر.</li>
 <li><strong><code>0x8000649C</code> — WRITE:</strong> اليوزر يرسل له physical address وقيمة بحجم 1 أو 2 أو 4 أو 8 الدرايفر يسوي map للصفحة ويكتب القيمة داخل الـ physical memory اللي نحدده سواء كان عنوان فنكشن او اي مكان بالكيرنل.</li>
 </ul>
-<p>الأرقام <code>1</code> و<code>2</code> و<code>4</code> و<code>8</code> هي عدد البايتات، مو عناوين.</p>
 <p><strong>وين المشكلة؟</strong> الدرايفر يتحقق فقط من حجم البيانات، وما يتحقق من الـ physical address نفسه. يعني أي عنوان تقدر تكتب عليه او تقرأ منه في الكيرنل.</p>
 
 <h3>ايش هو الـKASLR </h3>
