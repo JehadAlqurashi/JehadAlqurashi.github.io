@@ -155,7 +155,6 @@
 <line x1="590" y1="369" x2="625" y2="369" stroke="#64748b" stroke-width="1.5" marker-end="url(#fig1ar-arrow)"/>
 <text x="480" y="435" fill="#64748b" font-family="Inter, sans-serif" font-size="10" text-anchor="middle">tsmapper only — the ESP client is not part of this stage.</text>
 </svg>
-<figcaption><strong>Figure 1.</strong> tsmapper gets the ntoskrnl base, resolves NtAddAtom VA and PA, writes a temporary jump, calls it, and then maps the final driver.</figcaption>
 </figure>
 </div>
 
@@ -171,63 +170,119 @@ User path: \\.\ThrottleStop</code></pre>
 <pre><code>0x80006498  -> physical read  @ 0x140002184
 0x8000649C  -> physical write @ 0x140002271</code></pre>
 
-<h3>الكود بعد الـ decompile</h3>
-<pre class="code-lines"><code><span class="ln">01</span>NTSTATUS ReadPhysical(PIRP Irp) {  // READ primitive (line 01)
-<span class="ln">02</span>    auto* stack = IoGetCurrentIrpStackLocation(Irp);
-<span class="ln">03</span>
-<span class="ln">04</span>    if (stack-&gt;Parameters.DeviceIoControl.InputBufferLength != 8)
-<span class="ln">05</span>        return STATUS_INFO_LENGTH_MISMATCH;
-<span class="ln">06</span>
-<span class="ln">07</span>    ULONG size = stack-&gt;Parameters.DeviceIoControl.OutputBufferLength;
-<span class="ln">08</span>    if (size != 1 &amp;&amp; size != 2 &amp;&amp; size != 4 &amp;&amp; size != 8)
-<span class="ln">09</span>        return STATUS_INVALID_PARAMETER;
-<span class="ln">10</span>
-<span class="ln">11</span>    ULONG64 pa = *(ULONG64*)Irp-&gt;AssociatedIrp.SystemBuffer;
-<span class="ln">12</span>
-<span class="ln">13</span>    PVOID mapped = MmMapIoSpace(pa, size, 0);  // physical map
-<span class="ln">14</span>    if (!mapped)
-<span class="ln">15</span>        return STATUS_UNSUCCESSFUL;
-<span class="ln">16</span>
-<span class="ln">17</span>    memcpy(Irp-&gt;AssociatedIrp.SystemBuffer, mapped, size);
-<span class="ln">18</span>    MmUnmapIoSpace(mapped, size);
-<span class="ln">19</span>
-<span class="ln">20</span>    Irp-&gt;IoStatus.Information = size;
-<span class="ln">21</span>    return STATUS_SUCCESS;
-<span class="ln">22</span>}
-<span class="ln">23</span>
-<span class="ln">24</span>NTSTATUS WritePhysical(PIRP Irp) {  // WRITE primitive (line 24)
-<span class="ln">25</span>    auto* stack = IoGetCurrentIrpStackLocation(Irp);
-<span class="ln">26</span>
-<span class="ln">27</span>    if (stack-&gt;Parameters.DeviceIoControl.OutputBufferLength != 0)
-<span class="ln">28</span>        return STATUS_INVALID_PARAMETER;
-<span class="ln">29</span>
-<span class="ln">30</span>    ULONG size = stack-&gt;Parameters.DeviceIoControl.InputBufferLength - 8;
-<span class="ln">31</span>    if (size != 1 &amp;&amp; size != 2 &amp;&amp; size != 4 &amp;&amp; size != 8)
-<span class="ln">32</span>        return STATUS_INVALID_PARAMETER;
-<span class="ln">33</span>
-<span class="ln">34</span>    UCHAR* buffer = (UCHAR*)Irp-&gt;AssociatedIrp.SystemBuffer;
-<span class="ln">35</span>    ULONG64 pa = *(ULONG64*)buffer;
-<span class="ln">36</span>    ULONG64 value = *(ULONG64*)(buffer + 8);
-<span class="ln">37</span>
-<span class="ln">38</span>    PVOID mapped = MmMapIoSpace(pa, size, 0);  // physical map
-<span class="ln">39</span>    if (!mapped)
-<span class="ln">40</span>        return STATUS_UNSUCCESSFUL;
-<span class="ln">41</span>
-<span class="ln">42</span>    memcpy(mapped, &amp;value, size);
-<span class="ln">43</span>    MmUnmapIoSpace(mapped, size);
-<span class="ln">44</span>
-<span class="ln">45</span>    Irp-&gt;IoStatus.Information = 0;
-<span class="ln">46</span>    return STATUS_SUCCESS;
-<span class="ln">47</span>}</code></pre>
+<h3>الكود من Hex-Rays</h3>
+<p>هذا مقتطف Hex-Rays من داخل <code>sub_140001EF0</code>. الأسماء مثل <code>v2</code> و<code>v21</code> و<code>v28</code> هي أسماء المتغيرات اللي طلعت من الديكومبايلر نفسه.</p>
+<pre><code>v2 = *(_QWORD *)(a2 + 184);
+v6 = -1073741823;
 
-<h3>الأصابة</h3>
+switch ( *(_DWORD *)(v2 + 24) )
+{
+    case 0x80006498:
+      if ( *(_DWORD *)(v2 + 16) != 8 )
+      {
+        *(_QWORD *)(a2 + 56) = 8;
+        v7 = 309;
+        goto LABEL_99;
+      }
+      v21 = *(unsigned __int8 *)(v2 + 8);
+      if ( (unsigned __int8)v21 &gt; 8u || (v22 = 278, !_bittest(&amp;v22, v21)) )
+      {
+        v7 = 318;
+        goto LABEL_99;
+      }
+      v23 = MmMapIoSpace(**(PHYSICAL_ADDRESS **)(a2 + 24), *(unsigned __int8 *)(v2 + 8), MmNonCached);
+      if ( v23 == nullptr )
+      {
+        v24 = 325;
+        goto LABEL_68;
+      }
+      if ( (_BYTE)v21 == 1 )
+      {
+        **(_BYTE **)(a2 + 24) = *v23;
+        MmUnmapIoSpace(v23, v21);
+        v6 = 0;
+      }
+      else if ( (_BYTE)v21 == 2 )
+      {
+        **(_WORD **)(a2 + 24) = *(_WORD *)v23;
+        MmUnmapIoSpace(v23, v21);
+        v6 = 0;
+      }
+      else if ( (_BYTE)v21 == 4 )
+      {
+        **(_DWORD **)(a2 + 24) = *(_DWORD *)v23;
+        MmUnmapIoSpace(v23, v21);
+        v6 = 0;
+      }
+      else
+      {
+        if ( (_BYTE)v21 == 8 )
+          **(_QWORD **)(a2 + 24) = *(_QWORD *)v23;
+        MmUnmapIoSpace(v23, v21);
+        v6 = 0;
+      }
+      goto LABEL_100;
+    case 0x8000649C:
+      if ( *(_DWORD *)(v2 + 8) != 0 )
+      {
+        *(_QWORD *)(a2 + 56) = 0;
+        v7 = 351;
+        goto LABEL_99;
+      }
+      v25 = *(unsigned __int8 *)(v2 + 16);
+      LOBYTE(v25) = v25 - 8;
+      if ( (unsigned __int8)v25 &gt; 8u || (v26 = 278, !_bittest(&amp;v26, v25)) )
+      {
+        v7 = 358;
+        goto LABEL_99;
+      }
+      v27 = *(_QWORD *)(a2 + 24);
+      v28 = MmMapIoSpace(*(PHYSICAL_ADDRESS *)v27, (unsigned __int8)v25, MmNonCached);
+      if ( v28 != nullptr )
+      {
+        if ( (_BYTE)v25 == 1 )
+        {
+          *v28 = *(_BYTE *)(v27 + 8);
+          MmUnmapIoSpace(v28, 1u);
+          v6 = 0;
+        }
+        else if ( (_BYTE)v25 == 2 )
+        {
+          *(_WORD *)v28 = *(_WORD *)(v27 + 8);
+          MmUnmapIoSpace(v28, 2u);
+          v6 = 0;
+        }
+        else if ( (_BYTE)v25 == 4 )
+        {
+          *(_DWORD *)v28 = *(_DWORD *)(v27 + 8);
+          MmUnmapIoSpace(v28, 4u);
+          v6 = 0;
+        }
+        else
+        {
+          if ( (_BYTE)v25 == 8 )
+            *(_QWORD *)v28 = *(_QWORD *)(v27 + 8);
+          MmUnmapIoSpace(v28, (unsigned __int8)v25);
+          v6 = 0;
+        }
+      }
+      else
+      {
+        v24 = 370;
+LABEL_68:
+        sub_140001590(1, &quot;%s %d: MmMapIoSpace failed&quot;, &quot;ioctl.c&quot;, v24);
+      }
+      goto LABEL_100;
+}</code></pre>
+
+<h3>شرح الإصابة</h3>
+<p>الـ IOCTL هو طلب يرسله برنامج من user mode إلى الدرايفر. هذا الدرايفر عنده طلبين مهمين:</p>
 <ul>
-<li><strong>الأسطر 11–18:</strong> يأخذ أي physical address، و<code>MmMapIoSpace</code> يسوي mapping له، والبايتات تنسخ إلى output buffer. هذا read primitive.</li>
-<li><strong>الأسطر 34–43:</strong> يأخذ physical address و value ويكتب القيمة في الـphysical address  اللي نبيه هذا write primitive.</li>
-<li><strong>الأسطر 4–9 و27–32:</strong> زي ما نلاحظ، لا يوجد شيك على input/output للعنوان اللي نحتاج نقرأ منه أو نكتب فيه، وهذا هو سبب الإصابة.</li>
+<li><strong><code>0x80006498</code> — READ:</strong> اليوزر يرسل له physical address والقيمة لازم تكون 1 او 2 او 4 او 8 بايت الدرايفر يسوي map للـ physical page، يقرأ البايتات، ويرجعها لليوزر.</li>
+<li><strong><code>0x8000649C</code> — WRITE:</strong> اليوزر يرسل له physical address وقيمة بحجم 1 أو 2 أو 4 أو 8 الدرايفر يسوي map للصفحة ويكتب القيمة داخل الـ physical memory اللي نحدده سواء كان عنوان فنكشن او اي مكان بالكيرنل.</li>
 </ul>
-
-<p>ببساطة نقدر نكتب الى أي physical page في الكيرنل او نقرأ منها سواء كانت  read-only او غيره راح نستخدم فنشكن NtAddAtom كـCall Gate عشانها غير مستخدمة بكثرة في النظام ونقدر نستدعيها عن طريق اليوزر مود  </p>
+<p>الأرقام <code>1</code> و<code>2</code> و<code>4</code> و<code>8</code> هي عدد البايتات، مو عناوين.</p>
+<p><strong>وين المشكلة؟</strong> الدرايفر يتحقق فقط من حجم البيانات، وما يتحقق من الـ physical address نفسه. يعني أي عنوان تقدر تكتب عليه او تقرأ منه في الكيرنل.</p>
 
 <h3>ايش هو الـKASLR </h3>
 <p> ببساطة هي حماية كل مره تشغل الجهاز راح يختلف معك الـAddress الخاصة بالنظام. ليش نحتاجها؟ عشان ودنا نعرف مكان الفنكشن Ntaddatom اللي راح نكتب عليها الدرايفر الخاص فينا </p>
