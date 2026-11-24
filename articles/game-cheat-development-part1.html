@@ -345,7 +345,7 @@ uint64_t runtime_va = ntoskrnlAddr + offset;</code></pre>
     return (pte &amp; 0x000FFFFFFFFFF000ULL) | (va &amp; 0xFFF);
 }</code></pre>
 <h2>3. الإستغلال</h2>
-<p>الإستغلال يمر على خمس مراحل:</p>
+<p>الإستغلال يمر على 13 مرحله:</p>
 <ol>
 <li>نجيب <code>Kernel Base</code> وأوفست <code>NtAddAtom</code>.</li>
 <li>نحوّل عنوان <code>NtAddAtom</code> من <code>VA</code> إلى <code>PA</code>.</li>
@@ -354,10 +354,9 @@ uint64_t runtime_va = ntoskrnlAddr + offset;</code></pre>
     <li>نحفظ أول 16 بايت من الدالة.</li>
     <li>نكتب <code>jmp</code> للدالة اللي نبي نناديها.</li>
     <li>ننادي <code>ntdll!NtAddAtom</code>.</li>
-    <li>نرجع البايتات الأصلية بعد النداء.</li>
+    <li>نرجع البايتات الأصلية بعد كل Call لـNtaddAtom.</li>
   </ul>
 </li>
-<li>نسوي mapping لـدرايفر <code>kdriver.sys</code>:
   <ul>
     <li><code>ExAllocatePoolWithTag</code> — نحجز pool للدرايفر.</li>
     <li><code>MmGetPhysicalAddress</code> — ناخذ PA للـ pool.</li>
