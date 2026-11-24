@@ -362,7 +362,7 @@ uint64_t runtime_va = ntoskrnlAddr + offset;</code></pre>
     <li><code>ExAllocatePoolWithTag</code> — نحجز pool للدرايفر.</li>
     <li><code>MmGetPhysicalAddress</code> — ناخذ PA للـ pool.</li>
     <li>نقرا الدرايفر من الدسك ونسوي resolve للفنكشنز.</li>
-    <li>نكتب الصورة في الـ pool، وبعدها <code>jmp</code> إلى <code>DriverEntry</code>.</li>
+    <li>نكتب الدرايفر في الـ pool، وبعدها <code>jmp</code> إلى <code>DriverEntry</code>.</li>
   </ul>
 </li>
 <li>ننظف آثار اللودر.</li>
